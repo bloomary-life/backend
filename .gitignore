@@ -1,0 +1,14 @@
+coverage.html
+
+.DS_Store
+.env
+.env.*
+!.env.example
+build/
+.build/
+DerivedData/
+xcuserdata/
+graphify-out/
+coverage.out
+*.test
+bloomary-api

@@ -1,0 +1,97 @@
+structname: Mock{{.InterfaceName}}
+pkgname: mocks
+filename: mock_{{.InterfaceName}}.go
+template: testify
+template-data:
+  unroll-variadic: true
+packages:
+  bloomary-api/internal/domain/account:
+    config:
+      dir: internal/mocks/domain/account
+    interfaces:
+      AccountDeletionStory: {}
+      LinkedInAuthStory: {}
+      OAuthStateStore: {}
+      Repository: {}
+  bloomary-api/internal/domain/appleiap:
+    config:
+      dir: internal/mocks/domain/appleiap
+    interfaces:
+      EntitlementRepository: {}
+      NotificationStory: {}
+      NotificationVerifier: {}
+      TransactionSyncStory: {}
+      TransactionVerifier: {}
+  bloomary-api/internal/domain/daily:
+    config:
+      dir: internal/mocks/domain/daily
+    interfaces:
+      QuotaConsumer: {}
+      Repository: {}
+  bloomary-api/internal/domain/draft:
+    config:
+      dir: internal/mocks/domain/draft
+    interfaces:
+      ImageStory: {}
+      ObjectStore: {}
+      Repository: {}
+      SyncStory: {}
+  bloomary-api/internal/domain/entitlement:
+    config:
+      dir: internal/mocks/domain/entitlement
+    interfaces:
+      AccessStory: {}
+  bloomary-api/internal/domain/feedback:
+    config:
+      dir: internal/mocks/domain/feedback
+    interfaces:
+      FeedbackStory: {}
+  bloomary-api/internal/domain/limiter:
+    config:
+      dir: internal/mocks/domain/limiter
+    interfaces:
+      DailyIPLimiter: {}
+  bloomary-api/internal/domain/linkedin:
+    config:
+      dir: internal/mocks/domain/linkedin
+    interfaces:
+      Gate: {}
+      LinkedInPostStory: {}
+  bloomary-api/internal/domain/metrics:
+    config:
+      dir: internal/mocks/domain/metrics
+    interfaces:
+      MetricsRepository: {}
+      PostPublishRepository: {}
+      Recorder: {}
+  bloomary-api/internal/domain/paddle_entitlement:
+    config:
+      dir: internal/mocks/domain/paddle_entitlement
+    interfaces:
+      Repository: {}
+      WebhookStory: {}
+  bloomary-api/internal/domain/recaptcha:
+    config:
+      dir: internal/mocks/domain/recaptcha
+    interfaces:
+      Captcha: {}
+  bloomary-api/internal/domain/resend:
+    config:
+      dir: internal/mocks/domain/resend
+    interfaces:
+      Gate: {}
+  bloomary-api/internal/domain/scheduledpost:
+    config:
+      dir: internal/mocks/domain/scheduledpost
+    interfaces:
+      Repository: {}
+  bloomary-api/internal/domain/trial:
+    config:
+      dir: internal/mocks/domain/trial
+    interfaces:
+      Repository: {}
+  bloomary-api/internal/platform/httpclient:
+    config:
+      dir: internal/mocks/platform/httpclient
+    interfaces:
+      Client: {}

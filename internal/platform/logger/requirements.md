@@ -1,0 +1,10 @@
+- use slog
+- constants - put to config as optional variables
+- thread safe
+- by default add values from context to the logger field output
+- 1 min delay on fatals / panic
+- text / json format toggle, default is text
+- sentry integration - aggregated [10m]
+  - report error, fatal, panic
+  - app environment
+  - app version

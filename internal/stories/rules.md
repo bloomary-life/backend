@@ -1,0 +1,3 @@
+- ONLY business logic
+- no API / gateway leakage allowed
+- no http api scpecifics leaked into stories

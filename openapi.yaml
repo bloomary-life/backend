@@ -1,0 +1,976 @@
+openapi: 3.1.0
+info:
+  title: Bloomary API
+  version: 0.1.0
+servers:
+  - url: https://api.bloomary.life
+paths:
+  /api/linkedin/cli/start:
+    get:
+      operationId: startLinkedInAuth
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: LinkedIn auth flow started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInStartResponse"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/linkedin/callback:
+    get:
+      operationId: completeLinkedInCallback
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error_description
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: HTML page that redirects to the iOS app URL scheme.
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          description: HTML page that redirects to the iOS app URL scheme.
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/linkedin/cli/result:
+    get:
+      operationId: getLinkedInAuthResult
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: wait
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 570
+      responses:
+        "200":
+          description: Current LinkedIn auth flow status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInAuthResult"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/linkedin/token:
+    post:
+      operationId: exchangeLinkedInToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkedInTokenRequest"
+      responses:
+        "200":
+          description: LinkedIn token and profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInToken"
+        "201":
+          description: LinkedIn token and profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedInToken"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/linkedin/disconnect:
+    post:
+      operationId: disconnectLinkedIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - linkedInId
+              properties:
+                linkedInId:
+                  type: string
+      responses:
+        "200":
+          description: LinkedIn auth/profile row deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum: [disconnected]
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/account/delete:
+    post:
+      operationId: deleteAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - linkedInId
+              properties:
+                linkedInId:
+                  type: string
+      responses:
+        "200":
+          description: LinkedIn auth/profile row deleted for account deletion.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum: [deleted]
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/linkedin/post:
+    post:
+      operationId: publishLinkedInPost
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - accessToken
+                - memberId
+              properties:
+                accessToken:
+                  type: string
+                memberId:
+                  type: string
+                commentary:
+                  type: string
+                attachment:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: LinkedIn post published.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - postId
+                properties:
+                  status:
+                    type: string
+                    enum: [published]
+                  postId:
+                    type: string
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/feedback:
+    post:
+      operationId: sendFeedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+      responses:
+        "200":
+          description: Feedback sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum: [sent]
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/draft-images/presign-upload:
+    post:
+      operationId: presignDraftImageUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftImagePresignUploadRequest"
+      responses:
+        "200":
+          description: Presigned private R2 upload URL and required metadata headers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DraftImagePresignUploadResponse"
+        "402":
+          $ref: "#/components/responses/APIError"
+        "413":
+          $ref: "#/components/responses/APIError"
+        "422":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/draft-images/presign-download:
+    post:
+      operationId: presignDraftImageDownload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftImagePresignDownloadRequest"
+      responses:
+        "200":
+          description: Short-lived presigned private R2 download URL for an existing linked draft image.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DraftImagePresignDownloadResponse"
+        "402":
+          $ref: "#/components/responses/APIError"
+        "404":
+          $ref: "#/components/responses/APIError"
+        "422":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/streak:
+    post:
+      operationId: getStreak
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - memberId
+              properties:
+                memberId:
+                  type: string
+      responses:
+        "200":
+          description: Streak data for the authenticated member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreakResponse"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/entitlement:
+    get:
+      operationId: getEntitlement
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current entitlement status for the member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntitlementResponse"
+        "403":
+          $ref: "#/components/responses/APIError"
+        "429":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/drafts/sync:
+    post:
+      operationId: syncDrafts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DraftSyncRequest"
+      responses:
+        "200":
+          description: Drafts synced successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DraftSyncResponse"
+        "403":
+          $ref: "#/components/responses/APIError"
+        "404":
+          $ref: "#/components/responses/APIError"
+        "409":
+          $ref: "#/components/responses/APIError"
+        "413":
+          $ref: "#/components/responses/APIError"
+        "422":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/drafts/export:
+    get:
+      operationId: exportDrafts
+      description: >-
+        Zip of every server-side draft of the member: one `<draftId>.md` per
+        draft (YAML front matter with draftId, status, createdAt, updatedAt,
+        then the body) plus its image as `<draftId>.<ext>`, linked from the
+        Markdown. Open in every access state (trial, pro, lapsed).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: memberId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Draft archive as a zip file.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/APIError"
+        "429":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/apple/transactions/sync:
+    post:
+      operationId: syncAppleTransaction
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppleTransactionSyncRequest"
+      responses:
+        "200":
+          description: Apple transaction synced and entitlement updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppleTransactionSyncResponse"
+        "400":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/apple/notifications:
+    post:
+      operationId: appleServerNotification
+      description: Apple App Store Server Notifications v2. JWS-verified, no bearer auth required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppleNotificationRequest"
+      responses:
+        "200":
+          description: Notification processed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum: [processed]
+        "400":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/paddle/webhook:
+    post:
+      operationId: paddleWebhook
+      description: Paddle webhook events. Verified via Paddle-Signature header, no bearer auth.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaddleWebhookEvent"
+      responses:
+        "200":
+          description: Webhook processed.
+        "400":
+          $ref: "#/components/responses/APIError"
+        "401":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/support/feedback:
+    post:
+      operationId: sendSupportFeedback
+      description: Feedback from the support website. Separate CORS origin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+      responses:
+        "200":
+          description: Feedback sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum: [sent]
+        "403":
+          $ref: "#/components/responses/APIError"
+        "429":
+          $ref: "#/components/responses/APIError"
+        default:
+          $ref: "#/components/responses/APIError"
+  /healthcheck:
+    get:
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Service unhealthy (SQLite unavailable).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /version:
+    get:
+      operationId: getVersion
+      security: []
+      responses:
+        "200":
+          description: Deployed version string.
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    APIError:
+      description: API error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+  schemas:
+    APIError:
+      type: object
+      required:
+        - error
+        - errorDescription
+      properties:
+        error:
+          type: string
+        errorDescription:
+          type: string
+    FeedbackRequest:
+      type: object
+      required:
+        - message
+      properties:
+        name:
+          type: string
+        linkedInId:
+          type: string
+        email:
+          type: string
+          format: email
+        title:
+          type: string
+        message:
+          type: string
+        recaptchaResponse:
+          type: string
+        attachments:
+          type: array
+          items:
+            type: object
+            required:
+              - filename
+              - content
+            properties:
+              filename:
+                type: string
+              content:
+                type: string
+    StreakResponse:
+      type: object
+      required:
+        - current
+        - longest
+        - weekDays
+      properties:
+        current:
+          type: integer
+        longest:
+          type: integer
+        lastPostedDay:
+          type: string
+          format: date
+          nullable: true
+        weekDays:
+          type: array
+          items:
+            type: boolean
+          minItems: 7
+          maxItems: 7
+    EntitlementResponse:
+      type: object
+      required:
+        - isPro
+        - needsSignature
+        - draftLimit
+        - postCount
+      properties:
+        isPro:
+          type: boolean
+        needsSignature:
+          type: boolean
+          deprecated: true
+          description: Always false. The post signature is retired; the key is
+            retained only so shipped iOS builds can still decode the response.
+        draftLimit:
+          type: integer
+        postCount:
+          type: integer
+        accessUntil:
+          type: string
+          format: date-time
+    DraftSyncRequest:
+      type: object
+      properties:
+        upserts:
+          type: array
+          items:
+            type: object
+            required:
+              - draftId
+              - body
+            properties:
+              draftId:
+                type: string
+              body:
+                type: string
+              updatedAt:
+                type: string
+                format: date-time
+              image:
+                $ref: "#/components/schemas/DraftSyncImage"
+              removeImage:
+                type: boolean
+                description: When true and image is omitted, the stored draft image is deleted.
+        deletes:
+          type: array
+          items:
+            type: string
+    DraftSyncResponse:
+      type: object
+      required:
+        - drafts
+      properties:
+        drafts:
+          type: array
+          items:
+            type: object
+            required:
+              - draftId
+              - body
+              - createdAt
+              - updatedAt
+            properties:
+              draftId:
+                type: string
+              body:
+                type: string
+              image:
+                $ref: "#/components/schemas/DraftSyncImage"
+              createdAt:
+                type: string
+                format: date-time
+              updatedAt:
+                type: string
+                format: date-time
+    DraftSyncImage:
+      type: object
+      required:
+        - imageId
+        - mimeType
+        - sizeBytes
+        - checksumSHA256
+      properties:
+        imageId:
+          type: string
+        downloadUrl:
+          type: string
+          format: uri
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        checksumSHA256:
+          type: string
+    AppleTransactionSyncRequest:
+      type: object
+      required:
+        - memberId
+        - signedTransaction
+      properties:
+        memberId:
+          type: string
+        signedTransaction:
+          type: string
+          description: JWS-signed transaction from StoreKit 2
+    AppleTransactionSyncResponse:
+      type: object
+      required:
+        - status
+        - isPro
+      properties:
+        status:
+          type: string
+          enum: [synced]
+        isPro:
+          type: boolean
+        accessUntil:
+          type: string
+          format: date-time
+    AppleNotificationRequest:
+      type: object
+      required:
+        - signedPayload
+      properties:
+        signedPayload:
+          type: string
+          description: JWS-signed payload from Apple App Store Server Notifications v2
+    PaddleWebhookEvent:
+      type: object
+      required:
+        - event_id
+        - event_type
+        - occurred_at
+        - data
+      properties:
+        event_id:
+          type: string
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          properties:
+            customer_id:
+              type: string
+            status:
+              type: string
+            custom_data:
+              type: object
+              properties:
+                memberId:
+                  type: string
+            current_billing_period:
+              type: object
+              properties:
+                ends_at:
+                  type: string
+                  format: date-time
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        version:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+        error:
+          type: string
+    DraftImagePresignUploadRequest:
+      type: object
+      required:
+        - draftId
+        - mimeType
+        - sizeBytes
+        - checksumSHA256
+      properties:
+        draftId:
+          type: string
+        mimeType:
+          type: string
+          examples: [image/png]
+        sizeBytes:
+          type: integer
+          minimum: 1
+        checksumSHA256:
+          type: string
+          minLength: 64
+          maxLength: 64
+    DraftImagePresignUploadResponse:
+      type: object
+      required:
+        - imageId
+        - objectKey
+        - uploadUrl
+        - headers
+        - maxSizeBytes
+        - expiresAt
+        - checksumSHA256
+      properties:
+        imageId:
+          type: string
+        objectKey:
+          type: string
+        uploadUrl:
+          type: string
+          format: uri
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        maxSizeBytes:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+        checksumSHA256:
+          type: string
+    DraftImagePresignDownloadRequest:
+      type: object
+      required:
+        - draftId
+        - imageId
+      properties:
+        draftId:
+          type: string
+        imageId:
+          type: string
+    DraftImagePresignDownloadResponse:
+      type: object
+      required:
+        - imageId
+        - downloadUrl
+        - expiresAt
+      properties:
+        imageId:
+          type: string
+        downloadUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+    LinkedInStartResponse:
+      type: object
+      required:
+        - authUrl
+        - state
+        - redirectUri
+        - pollUrl
+      properties:
+        authUrl:
+          type: string
+          format: uri
+        state:
+          type: string
+        redirectUri:
+          type: string
+          format: uri
+        pollUrl:
+          type: string
+    LinkedInAuthResult:
+      oneOf:
+        - type: object
+          required:
+            - status
+          properties:
+            status:
+              type: string
+              enum: [pending]
+        - type: object
+          required:
+            - status
+            - token
+          properties:
+            status:
+              type: string
+              enum: [done]
+            token:
+              $ref: "#/components/schemas/LinkedInToken"
+        - type: object
+          required:
+            - status
+            - error
+            - errorDescription
+          properties:
+            status:
+              type: string
+              enum: [error]
+            error:
+              type: string
+            errorDescription:
+              type: string
+            httpStatus:
+              type: integer
+            upstreamBody:
+              type: string
+    LinkedInTokenRequest:
+      type: object
+      required:
+        - code
+        - clientId
+        - redirectUri
+      properties:
+        code:
+          type: string
+        clientId:
+          type: string
+        redirectUri:
+          type: string
+          format: uri
+        codeVerifier:
+          type: string
+    LinkedInToken:
+      type: object
+      required:
+        - accessToken
+        - profile
+        - connectedAt
+      properties:
+        accessToken:
+          type: string
+        idToken:
+          type: string
+        tokenType:
+          type: string
+        scope:
+          type: string
+        expiresIn:
+          type: integer
+        profile:
+          $ref: "#/components/schemas/LinkedInProfile"
+        connectedAt:
+          type: string
+          format: date-time
+    LinkedInProfile:
+      type: object
+      required:
+        - memberId
+        - name
+      properties:
+        memberId:
+          type: string
+        name:
+          type: string
+        headline:
+          type: string
+        localizedHeadline:
+          type: string
+        pictureUrl:
+          type: string
+          format: uri
+        email:
+          type: string
+          format: email

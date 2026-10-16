@@ -1,0 +1,101 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  generate:
+    desc: Generate all mocks using mockery
+    cmds:
+      - go run github.com/vektra/mockery/v3@v3.8.1
+    sources:
+      - .mockery.yaml
+      - internal/domain/**/*.go
+      - internal/platform/**/*.go
+    generates:
+      - internal/**/mocks/*.go
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  test-sqlite:
+    desc: Run tests with isolated SQLite DB
+    cmds:
+      - SQLITE_TEST_DB_PATH="./test_bloomary_$(date +%s).db" go test ./...
+
+  test-verbose:
+    desc: Run all tests with verbose output
+    cmds:
+      - go test -v ./...
+
+  test-coverage:
+    desc: Run tests with coverage report
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - echo ""
+      - echo "=== Coverage by Package ==="
+      - go tool cover -func=coverage.out | grep -E "^(bloomary-api|total:)"
+      - echo ""
+      - echo "=== Total Coverage ==="
+      - go tool cover -func=coverage.out | tail -1
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo ""
+      - echo "HTML report generated"
+    generates:
+      - coverage.out
+      - coverage.html
+
+  clean-mocks:
+    desc: Remove generated mocks from internal/mocks/
+    cmds:
+      - rm -rf ./internal/mocks
+
+  clean-test-db:
+    desc: Remove test databases
+    cmds:
+      - rm -f ./test_bloomary*.db
+      - rm -f ./test_bloomary*.db-wal
+      - rm -f ./test_bloomary*.db-shm
+
+  clean:
+    desc: Clean mocks and test DBs
+    cmds:
+      - task: clean-mocks
+      - task: clean-test-db
+
+  deps:
+    desc: Install dependencies
+    cmds:
+      - go mod tidy
+      - go install github.com/vektra/mockery/v3@v3.8.1
+
+  lint:
+    desc: Run linter
+    cmds:
+      - golangci-lint run
+
+  build:
+    desc: Build the application
+    cmds:
+      - go build ./...
+
+  help:
+    desc: Show help information
+    cmds:
+      - |
+        echo "Available tasks:"
+        echo "  task generate      - Generate all mocks"
+        echo "  task test          - Run all tests"
+        echo "  task test-sqlite   - Run tests with isolated SQLite DB"
+        echo "  task test-verbose  - Run tests with verbose output"
+        echo "  task test-coverage - Run tests with coverage report"
+        echo "  task clean-mocks   - Remove generated mocks"
+        echo "  task clean-test-db - Remove test databases"
+        echo "  task clean         - Clean mocks and test DBs"
+        echo "  task deps          - Install dependencies"
+        echo "  task lint          - Run linter"
+        echo "  task build         - Build the application"

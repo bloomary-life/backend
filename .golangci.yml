@@ -1,0 +1,67 @@
+version: "2"
+run:
+  tests: false
+linters:
+  enable:
+    - errorlint
+    - funlen
+    - gocognit
+    - gocyclo
+    - gosec
+    - rowserrcheck
+    - unparam
+    - wsl_v5
+  settings:
+    funlen:
+      lines: 300
+      statements: 100
+      ignore-comments: true
+    gocognit:
+      min-complexity: 50
+    gocyclo:
+      min-complexity: 30
+    rowserrcheck:
+      packages:
+        - github.com/jmoiron/sqlx
+    staticcheck:
+      checks:
+        - all
+    unparam:
+      check-exported: true
+    unused:
+      field-writes-are-uses: false
+      generated-is-used: false
+    wsl_v5:
+      default: none
+      enable:
+        - after-block
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - funlen
+          - gocognit
+          - gocyclo
+        path: cmd/service/main.go
+      - linters:
+          - funlen
+          - gocognit
+          - gocyclo
+        path: cmd/cron/main.go
+    paths:
+      - wrappers
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
