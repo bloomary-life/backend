@@ -12,7 +12,7 @@ go test ./...
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors sign the [CLA](CLA.md) on their first pull request: copyright in contributions is assigned to DailyMind LTD.
+Bloomary is open source and welcomes edits. Before you start, check open issues and pull requests and ask in an issue whether the change is planned or already taken. See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors sign the [CLA](CLA.md) on their first pull request: copyright in contributions is assigned to DailyMind LTD.
 
 ## License
 
