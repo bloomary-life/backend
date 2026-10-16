@@ -2,7 +2,7 @@
 
 Version 1.0 · 2026-10-16
 
-This agreement is between you and **DailyMind LTD**, a company registered in the Republic of Cyprus under number HE 439959, Aglantzia, Kythiron 8, Apartment 204, Nicosia 2103, Cyprus (the **Company**). It applies to every Contribution you submit to any repository of the Bloomary project at https://github.com/bloomary-life (the **Project**).
+This agreement is between you and **DailyMind LTD**, a company registered in the Republic of Cyprus under number HE 439959 (the **Company**). It applies to every Contribution you submit to any repository of the Bloomary project at https://github.com/bloomary-life (the **Project**).
 
 You accept this agreement by signing it through the CLA bot on your first pull request. If you contribute on behalf of your employer or another organisation, that organisation must also agree before your Contribution can be accepted: write to info@dailymind.eu.
 
