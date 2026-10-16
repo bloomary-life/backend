@@ -1,0 +1,29 @@
+Bloomary backend
+Copyright (C) 2026 DailyMind LTD (Republic of Cyprus, HE 439959)
+SPDX-License-Identifier: AGPL-3.0-only
+
+License
+  This repository is licensed under the GNU Affero General Public License,
+  version 3 only (see LICENSE). If you run a modified version as a network
+  service, AGPL-3.0 section 13 requires you to offer its source code to
+  its users.
+
+Ownership and commercial use
+  DailyMind LTD owns the copyright in this code. Contributors assign their
+  copyright to DailyMind LTD under the Contributor License Agreement (CLA.md).
+  As the copyright owner, DailyMind LTD also licenses this code under other
+  terms, including app-store distribution and the paid hosted service at
+  https://bloomary.life.
+
+Trademarks
+  "Bloomary" and the Bloomary logo are trademarks of DailyMind LTD.
+  Under AGPL-3.0 section 7(e), this license grants no rights to use them.
+  Distributions of modified versions must use a different name and logo
+  and must not suggest endorsement by DailyMind LTD.
+
+Third-party components
+  Dependencies keep their own licenses (see go.mod, Package.resolved,
+  Gradle files or package manifests in this repository).
+
+Contact
+  info@dailymind.eu

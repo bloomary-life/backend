@@ -12,8 +12,8 @@ go test ./...
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors sign a CLA on their first pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors sign the [CLA](CLA.md) on their first pull request: copyright in contributions is assigned to DailyMind LTD.
 
 ## License
 
-[AGPL-3.0](LICENSE) © DailyMind LTD. The hosted service at bloomary.life is a paid product.
+[AGPL-3.0-only](LICENSE) © 2026 DailyMind LTD. DailyMind LTD owns the copyright and also licenses Bloomary commercially (app stores, paid hosted service at bloomary.life). "Bloomary" and its logo are trademarks of DailyMind LTD and are not licensed: forks must use another name and logo. Details: [NOTICE](NOTICE).

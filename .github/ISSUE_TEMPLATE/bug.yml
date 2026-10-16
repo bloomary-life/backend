@@ -1,0 +1,33 @@
+name: Bug
+description: Something does not do what a requirement says
+labels: [bug]
+body:
+  - type: input
+    id: requirement
+    attributes:
+      label: Requirement ID or expected behaviour
+      description: "ID from REQUIREMENTS.md, or: When X, Y."
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: "1.\n2.\n3."
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Version / device / OS
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "Security problem? Do not file it here — see SECURITY.md."

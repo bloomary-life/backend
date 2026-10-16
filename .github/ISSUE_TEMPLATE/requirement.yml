@@ -1,0 +1,24 @@
+name: Requirement
+description: Propose new or changed behaviour
+labels: [requirement]
+body:
+  - type: input
+    id: statement
+    attributes:
+      label: Requirement
+      description: "One testable sentence: When <condition>, <system> <observable result>."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Who needs it and why
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How we will know it works
+      description: The test or observable check that would fail if this were false.
+    validations:
+      required: true
