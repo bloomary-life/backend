@@ -10,6 +10,16 @@
 | 6 | Security reports | [SECURITY.md](SECURITY.md) — never a public issue |
 | 7 | AI agents | Welcome. Agents read [AGENTS.md](AGENTS.md). You own every line you submit. |
 
+## Open source: edits welcome — ask first
+
+| # | Step |
+|---|---|
+| 1 | Search open issues and pull requests: someone may already be working on it. |
+| 2 | Comment on the issue (or open one) with what you plan to do, and wait for a maintainer's go-ahead. |
+| 3 | Typos and broken links: no need to ask, open the pull request. |
+| 4 | One person per issue. A claimed issue with no update for 14 days is free again. |
+| 5 | Not sure it's planned? Ask in the issue first; a "not planned" answer saves you the work. |
+
 ## Evidence rule
 
 Passing tests alone prove nothing. A change is accepted when evidence proves each requirement it touches.
