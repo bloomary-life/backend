@@ -18,7 +18,7 @@ Instructions for AI agents. Humans: [CONTRIBUTING.md](CONTRIBUTING.md); same rul
 | # | Rule |
 |---|---|
 | 1 | Never invent facts, APIs, file paths or test results. Unknown → say so in the PR. |
-| 2 | Before any work: search open issues and pull requests (`gh issue list`, `gh pr list`). If the task is taken, not planned, or has no maintainer go-ahead, stop and ask the human. |
+| 2 | Before any work: search open issues and pull requests (`gh issue list`, `gh pr list`). If the task is taken, not planned, or has no maintainer go-ahead, stop and ask the human (go-ahead can come from an issue or the Bloomary Telegram community, https://t.me/+NDQcpuABme9iYTU0). |
 | 3 | Before coding: restate the requirement as `When X, Y.` with its ID. |
 | 4 | Smallest diff that satisfies the requirement. No drive-by refactors or reformatting. |
 | 5 | Every behaviour change gets a test tagged `Verifies: <ID>` that fails if the requirement is false. |
