@@ -18,7 +18,7 @@ var _ dailyDomain.Repository = (*SQLiteRepository)(nil)
 
 func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	if db == nil {
-		return nil, fmt.Errorf("streak sqlite repository: db is required")
+		return nil, fmt.Errorf("daily sqlite repository: db is required")
 	}
 
 	return &SQLiteRepository{db: db}, nil
@@ -36,7 +36,7 @@ func (r *SQLiteRepository) Init(ctx context.Context) error {
 	)`,
 	)
 	if err != nil {
-		return fmt.Errorf("init streak sqlite table: %w", err)
+		return fmt.Errorf("init daily sqlite table: %w", err)
 	}
 
 	if err := r.ensurePostedColumn(ctx); err != nil {

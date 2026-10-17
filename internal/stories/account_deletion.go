@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	accountDomain "bloomary-api/internal/domain/account"
-	draftDomain "bloomary-api/internal/domain/draft"
 	dailyDomain "bloomary-api/internal/domain/daily"
+	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	"bloomary-api/internal/platform/logger"
 )
@@ -49,7 +49,7 @@ func NewAccountDeletionStory(
 }
 
 // DisconnectLinkedIn disconnects a LinkedIn account.
-// It cleans up LinkedIn-specific data (streaks, drafts, account).
+// It cleans up LinkedIn-specific data (daily post counts, drafts, account).
 func (s *accountDeletionStory) DisconnectLinkedIn(ctx context.Context, input accountDomain.DisconnectLinkedInInput) error {
 	if input.MemberID == "" {
 		return fmt.Errorf("member ID is required")

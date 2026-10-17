@@ -13,8 +13,8 @@ import (
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	accountMocks "bloomary-api/internal/mocks/domain/account"
+	dailyMocks "bloomary-api/internal/mocks/domain/daily"
 	draftMocks "bloomary-api/internal/mocks/domain/draft"
-	streakMocks "bloomary-api/internal/mocks/domain/daily"
 	"bloomary-api/internal/platform/logger"
 )
 
@@ -33,7 +33,7 @@ func (s *AccountDeletionStorySuite) SetupTest() {
 }
 
 func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_Success() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 
@@ -55,7 +55,7 @@ func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_Success() {
 }
 
 func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_EmptyMemberID() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 
@@ -72,7 +72,7 @@ func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_EmptyMemberID() {
 }
 
 func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_DailyDeleteFails() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 
@@ -92,7 +92,7 @@ func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_DailyDeleteFails() {
 }
 
 func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_DraftDeleteFails() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 
@@ -112,7 +112,7 @@ func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_DraftDeleteFails() {
 }
 
 func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_AccountDeleteFails() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 
@@ -132,7 +132,7 @@ func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_AccountDeleteFails() 
 }
 
 func (s *AccountDeletionStorySuite) TestDeleteAccount_Success() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 
@@ -154,7 +154,7 @@ func (s *AccountDeletionStorySuite) TestDeleteAccount_Success() {
 }
 
 func (s *AccountDeletionStorySuite) TestDeleteAccount_DeletesLinkedDraftImages() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	draftImages := new(draftMocks.MockObjectStore)
 	accountRepo := new(accountMocks.MockRepository)
@@ -190,7 +190,7 @@ func (s *AccountDeletionStorySuite) TestDeleteAccount_DeletesLinkedDraftImages()
 }
 
 func (s *AccountDeletionStorySuite) TestDeleteAccount_EmptyMemberID() {
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	draftRepo := new(draftMocks.MockRepository)
 	accountRepo := new(accountMocks.MockRepository)
 

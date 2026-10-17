@@ -295,31 +295,6 @@ paths:
           $ref: "#/components/responses/APIError"
         default:
           $ref: "#/components/responses/APIError"
-  /api/streak:
-    post:
-      operationId: getStreak
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - memberId
-              properties:
-                memberId:
-                  type: string
-      responses:
-        "200":
-          description: Streak data for the authenticated member.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StreakResponse"
-        default:
-          $ref: "#/components/responses/APIError"
   /api/entitlement:
     get:
       operationId: getEntitlement
@@ -588,27 +563,6 @@ components:
                 type: string
               content:
                 type: string
-    StreakResponse:
-      type: object
-      required:
-        - current
-        - longest
-        - weekDays
-      properties:
-        current:
-          type: integer
-        longest:
-          type: integer
-        lastPostedDay:
-          type: string
-          format: date
-          nullable: true
-        weekDays:
-          type: array
-          items:
-            type: boolean
-          minItems: 7
-          maxItems: 7
     EntitlementResponse:
       type: object
       required:

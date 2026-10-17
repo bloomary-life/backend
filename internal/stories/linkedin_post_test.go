@@ -18,7 +18,7 @@ import (
 	"bloomary-api/internal/metrics"
 	accountMocks "bloomary-api/internal/mocks/domain/account"
 	appleiapMocks "bloomary-api/internal/mocks/domain/appleiap"
-	streakMocks "bloomary-api/internal/mocks/domain/daily"
+	dailyMocks "bloomary-api/internal/mocks/domain/daily"
 	linkedinMocks "bloomary-api/internal/mocks/domain/linkedin"
 	paddleEntitlementMocks "bloomary-api/internal/mocks/domain/paddle_entitlement"
 	trialMocks "bloomary-api/internal/mocks/domain/trial"
@@ -63,7 +63,7 @@ func (s *LinkedInPostStorySuite) newStory(
 	accountRepo *accountMocks.MockRepository,
 	entitlementRepo *paddleEntitlementMocks.MockRepository,
 	trialRepo *trialMocks.MockRepository,
-	dailyRepo *streakMocks.MockRepository,
+	dailyRepo *dailyMocks.MockRepository,
 	productEvents *mockProductEvents,
 ) linkedinDomain.LinkedInPostStory {
 	appleRepo := appleiapMocks.NewMockEntitlementRepository(s.T())
@@ -107,7 +107,7 @@ func (s *LinkedInPostStorySuite) TestCreatePost_TextOnly_Success() {
 	accountRepo := new(accountMocks.MockRepository)
 	entitlementRepo := new(paddleEntitlementMocks.MockRepository)
 	trialRepo := new(trialMocks.MockRepository)
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	productEvents := new(mockProductEvents)
 
 	s.setupEntitlementMocks(accountRepo, entitlementRepo, trialRepo, true, time.Time{})
@@ -139,7 +139,7 @@ func (s *LinkedInPostStorySuite) TestCreatePost_WithImageAttachment_Success() {
 	accountRepo := new(accountMocks.MockRepository)
 	entitlementRepo := new(paddleEntitlementMocks.MockRepository)
 	trialRepo := new(trialMocks.MockRepository)
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	productEvents := new(mockProductEvents)
 
 	s.setupEntitlementMocks(accountRepo, entitlementRepo, trialRepo, true, time.Time{})
@@ -181,7 +181,7 @@ func (s *LinkedInPostStorySuite) TestCreatePost_LapsedEntitlementPublishesUnsign
 	accountRepo := new(accountMocks.MockRepository)
 	entitlementRepo := new(paddleEntitlementMocks.MockRepository)
 	trialRepo := new(trialMocks.MockRepository)
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	productEvents := new(mockProductEvents)
 
 	expiredTrial := time.Now().Add(-time.Hour)
@@ -213,7 +213,7 @@ func (s *LinkedInPostStorySuite) TestCreatePost_UploadMedia_Success() {
 	accountRepo := new(accountMocks.MockRepository)
 	entitlementRepo := new(paddleEntitlementMocks.MockRepository)
 	trialRepo := new(trialMocks.MockRepository)
-	dailyRepo := new(streakMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
 	productEvents := new(mockProductEvents)
 
 	s.setupEntitlementMocks(accountRepo, entitlementRepo, trialRepo, true, time.Time{})
