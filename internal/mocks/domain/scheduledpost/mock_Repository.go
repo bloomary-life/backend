@@ -120,6 +120,69 @@ func (_c *MockRepository_ByID_Call) RunAndReturn(run func(context1 context.Conte
 	return _c
 }
 
+// Cancel provides a mock function for the type MockRepository
+func (_mock *MockRepository) Cancel(context1 context.Context, s string, s1 string) error {
+	ret := _mock.Called(context1, s, s1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Cancel")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(context1, s, s1)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockRepository_Cancel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Cancel'
+type MockRepository_Cancel_Call struct {
+	*mock.Call
+}
+
+// Cancel is a helper method to define mock.On call
+//   - context1 context.Context
+//   - s string
+//   - s1 string
+func (_e *MockRepository_Expecter) Cancel(context1 any, s any, s1 any) *MockRepository_Cancel_Call {
+	return &MockRepository_Cancel_Call{Call: _e.mock.On("Cancel", context1, s, s1)}
+}
+
+func (_c *MockRepository_Cancel_Call) Run(run func(context1 context.Context, s string, s1 string)) *MockRepository_Cancel_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_Cancel_Call) Return(err error) *MockRepository_Cancel_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockRepository_Cancel_Call) RunAndReturn(run func(context1 context.Context, s string, s1 string) error) *MockRepository_Cancel_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ClaimDue provides a mock function for the type MockRepository
 func (_mock *MockRepository) ClaimDue(context1 context.Context, time1 time.Time) (scheduledpost.Post, error) {
 	ret := _mock.Called(context1, time1)

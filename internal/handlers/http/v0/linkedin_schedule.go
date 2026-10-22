@@ -30,13 +30,26 @@ func (s *service) LinkedInSchedule(w http.ResponseWriter, r *http.Request) {
 	if s.acceptWebPreflight(w, r) {
 		return
 	}
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 	memberID := strings.TrimSpace(r.URL.Query().Get("memberId"))
 	_, memberID, ok := s.requireMember(w, r, logger.Fields{"route": "/api/linkedin/schedule"}, bearerToken(r.Header.Get("Authorization")), memberID, http.StatusForbidden)
 	if !ok {
+		return
+	}
+	if r.Method == http.MethodDelete {
+		draftID := draftDomain.NormalizeID(r.URL.Query().Get("draftId"))
+		if draftID == "" {
+			writeAPIError(w, http.StatusBadRequest, "bad_request", "draftId is required")
+			return
+		}
+		if err := s.scheduledPostStory.Cancel(r.Context(), memberID, draftID); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "schedule_cancel_failed", "schedule could not be cancelled")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var req scheduleRequest

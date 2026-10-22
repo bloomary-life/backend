@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	dailyDomain "bloomary-api/internal/domain/daily"
+	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	linkedinDomain "bloomary-api/internal/domain/linkedin"
 	metricsDomain "bloomary-api/internal/domain/metrics"
@@ -129,6 +130,11 @@ func (s *service) LinkedInPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger.SetFields(r.Context(), fields).SetField("outcome", "published").SetField("post_id", output.PostID)
+	if draftID := draftDomain.NormalizeID(r.FormValue("draftId")); draftID != "" && s.scheduledPostStory != nil {
+		if err := s.scheduledPostStory.Cancel(r.Context(), memberID, draftID); err != nil {
+			logger.SetFields(r.Context(), fields, logger.Err(err)).SetField("schedule_cancel", "failed")
+		}
+	}
 
 	response := linkedInPostResponse{Status: "published", PostID: output.PostID}
 

@@ -82,6 +82,10 @@ func (s *linkedInScheduleStory) ListActive(ctx context.Context, memberID string)
 	return s.jobs.ListActive(ctx, memberID)
 }
 
+func (s *linkedInScheduleStory) Cancel(ctx context.Context, memberID, draftID string) error {
+	return s.jobs.Cancel(ctx, memberID, draftID)
+}
+
 func (s *linkedInScheduleStory) RunWorker(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()

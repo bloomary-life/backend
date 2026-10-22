@@ -12,6 +12,7 @@ import (
 	linkedinDomain "bloomary-api/internal/domain/linkedin"
 	entitlementMocks "bloomary-api/internal/mocks/domain/entitlement"
 	linkedinMocks "bloomary-api/internal/mocks/domain/linkedin"
+	scheduleMocks "bloomary-api/internal/mocks/domain/scheduledpost"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -46,4 +47,34 @@ func TestLinkedInPostHandlerPublishesForTrialMember(t *testing.T) {
 	var out linkedInPostResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &out))
 	require.Equal(t, "urn:li:share:1", out.PostID)
+}
+
+func TestLinkedInPostHandlerCancelsDraftSchedule(t *testing.T) {
+	// Verifies: BE-001
+	linkedIn := linkedinMocks.NewMockGate(t)
+	linkedIn.On("UserInfo", mock.Anything, "access-token").
+		Return(linkedinDomain.Profile{MemberID: "member-1"}, nil)
+	access := entitlementMocks.NewMockAccessStory(t)
+	access.EXPECT().Resolve(mock.Anything, "member-1", mock.Anything).
+		Return(entitlementDomain.Entitlement{Tier: entitlementDomain.TierPro}, nil)
+	posts := linkedinMocks.NewMockLinkedInPostStory(t)
+	posts.EXPECT().CreatePost(mock.Anything, mock.Anything).Return(linkedinDomain.CreatePostOutput{PostID: "urn:li:share:1"}, nil)
+	schedules := scheduleMocks.NewMockStory(t)
+	schedules.EXPECT().Cancel(mock.Anything, "member-1", "draft-1").Return(nil).Once()
+	service := &service{linkedIn: linkedIn, accessStory: access, linkedInPostStory: posts, scheduledPostStory: schedules}
+
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	require.NoError(t, form.WriteField("memberId", "member-1"))
+	require.NoError(t, form.WriteField("commentary", "Hello LinkedIn"))
+	require.NoError(t, form.WriteField("draftId", "Draft-1"))
+	require.NoError(t, form.Close())
+	request := httptest.NewRequest(http.MethodPost, "/api/linkedin/post", &body)
+	request.Header.Set("Authorization", "Bearer access-token")
+	request.Header.Set("Content-Type", form.FormDataContentType())
+
+	response := httptest.NewRecorder()
+	service.LinkedInPost(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
 }

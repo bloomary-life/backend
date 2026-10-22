@@ -17,6 +17,7 @@ const (
 	Failed       Status = "failed"
 	NeedsReview  Status = "needs_review"
 	DeletedDraft Status = "deleted_draft"
+	Cancelled    Status = "cancelled"
 )
 
 type Post struct {

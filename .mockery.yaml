@@ -85,6 +85,7 @@ packages:
       dir: internal/mocks/domain/scheduledpost
     interfaces:
       Repository: {}
+      Story: {}
   bloomary-api/internal/domain/trial:
     config:
       dir: internal/mocks/domain/trial
