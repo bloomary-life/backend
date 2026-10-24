@@ -76,6 +76,16 @@ func (s *SyncDrafts) Sync(
 		return drafts, nil
 	}
 
+	// Validate before purging images below, so a rejected request deletes nothing.
+	for _, draft := range upserts {
+		if draft.DraftID == "" {
+			return nil, perror.New(draftDomain.ErrCodeInvalidDraft, nil, "draft id is required")
+		}
+		if utf8.RuneCountInString(draft.Body) > MaxDraftBodyRunes {
+			return nil, perror.New(draftDomain.ErrCodeDraftTooLong, nil, "draft body is too long")
+		}
+	}
+
 	purgeImageIDs := append([]string{}, deletes...)
 	for _, upsert := range upserts {
 		if upsert.RemoveImage && upsert.Image == nil {
@@ -95,13 +105,6 @@ func (s *SyncDrafts) Sync(
 	preparedImages := make([]preparedDraftImage, 0)
 	for index := range upserts {
 		draft := &upserts[index]
-		if draft.DraftID == "" {
-			return nil, perror.New(draftDomain.ErrCodeInvalidDraft, nil, "draft id is required")
-		}
-
-		if utf8.RuneCountInString(draft.Body) > MaxDraftBodyRunes {
-			return nil, perror.New(draftDomain.ErrCodeDraftTooLong, nil, "draft body is too long")
-		}
 		if draft.Image != nil {
 			prepared, err := prepareImage(ctx, images, memberID, draft)
 			if err != nil {

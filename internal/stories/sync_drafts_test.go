@@ -2,6 +2,7 @@ package stories
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -379,5 +380,27 @@ func TestSyncDraftsLowercasesDraftIDs(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Verifies: BE-006
+func TestSyncDraftsKeepsImagesWhenUpsertIsInvalid(t *testing.T) {
+	access := entitlementMocks.NewMockAccessStory(t)
+	access.EXPECT().Resolve(mock.Anything, "member-1", mock.Anything).
+		Return(entitlementDomain.Entitlement{IsPro: true, Tier: entitlementDomain.TierPro, DraftLimit: entitlementDomain.ProDraftLimit, PostCount: 1}, nil)
+	store := draftMocks.NewMockObjectStore(t)
+	repo := draftMocks.NewMockRepository(t)
+	story, err := NewSyncDrafts(access, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = story.Sync(
+		context.Background(), "member-1",
+		[]draftDomain.Upsert{{DraftID: "draft-2", Body: strings.Repeat("a", MaxDraftBodyRunes+1)}},
+		[]string{"draft-1"}, store,
+	)
+	if err == nil {
+		t.Fatal("expected too-long draft to be rejected")
 	}
 }
