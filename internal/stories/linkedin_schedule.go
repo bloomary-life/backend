@@ -2,11 +2,13 @@ package stories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	accountDomain "bloomary-api/internal/domain/account"
+	dailyDomain "bloomary-api/internal/domain/daily"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	linkedinDomain "bloomary-api/internal/domain/linkedin"
@@ -148,7 +150,7 @@ func (s *linkedInScheduleStory) publishOne(ctx context.Context) bool {
 }
 
 func (s *linkedInScheduleStory) retry(ctx context.Context, job scheduleDomain.Post, cause error) bool {
-	if strings.Contains(cause.Error(), "daily limit") {
+	if errors.Is(cause, dailyDomain.ErrDailyLimitExceeded) {
 		_ = s.update(ctx, job, scheduleDomain.Failed, "", cause.Error())
 		return true
 	}

@@ -2,10 +2,12 @@ package stories
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	accountDomain "bloomary-api/internal/domain/account"
+	dailyDomain "bloomary-api/internal/domain/daily"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	scheduleDomain "bloomary-api/internal/domain/scheduledpost"
@@ -43,4 +45,13 @@ func TestScheduleAllowsTrialMember(t *testing.T) {
 	if post.ID != "job-1" {
 		t.Fatalf("expected trial member's post to be scheduled, got %#v", post)
 	}
+}
+
+func TestScheduleRetryFailsJobOnDailyLimit(t *testing.T) {
+	jobs := scheduleMocks.NewMockRepository(t)
+	jobs.EXPECT().Update(mock.Anything, "job-1", scheduleDomain.Failed, "", mock.Anything).Return(nil).Once()
+	story := &linkedInScheduleStory{jobs: jobs}
+
+	cause := fmt.Errorf("%w: %s", dailyDomain.ErrDailyLimitExceeded, "member-1")
+	story.retry(context.Background(), scheduleDomain.Post{ID: "job-1", MemberID: "member-1"}, cause)
 }
