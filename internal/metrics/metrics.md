@@ -25,7 +25,7 @@ Emitted by `InstrumentHTTP` wrapping the mux in `main`.
 | `bloomary_outbound_http_request_duration_seconds` | histogram | client, host, path, method, status |
 | `bloomary_outbound_http_in_flight` | gauge | client, host, path, method, status |
 
-Emitted by `internal/platform/httpclient`. Clients: `linkedin`, `resend`, `recaptcha`.
+Emitted by `internal/platform/httpclient`. Clients: `linkedin`, `resend`, `recaptcha`, `paddle`, `apns`.
 
 ## Product Counters
 
@@ -41,6 +41,7 @@ Emitted by `internal/platform/httpclient`. Clients: `linkedin`, `resend`, `recap
 
 | Metric | Source |
 |--------|--------|
+| `bloomary_connected_users` | users with a stored LinkedIn connection (current, refreshed every time — not cached) |
 | `bloomary_signups_yesterday` | connected LinkedIn yesterday |
 | `bloomary_activated_yesterday` | first published post yesterday |
 | `bloomary_active_yesterday` | published yesterday |

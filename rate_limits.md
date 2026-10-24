@@ -20,7 +20,9 @@ LINKEDIN_RATE_LIMIT_BURST   = 4     (default)
 LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 ```
 
-**Key detail:** The in-memory `RateLimiter` is global across all members (a single bucket). Member-specific daily limits are enforced separately in SQLite. Access tokens are now stored in DB + cache-warmed on startup (no more blind LinkedIn API calls).
+- In-memory `RateLimiter`: global across all members (single bucket).
+- Per-member daily limits: SQLite, enforced separately.
+- Access tokens: stored in DB + cache-warmed on startup (no blind LinkedIn API calls).
 
 ---
 
@@ -30,7 +32,7 @@ LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 |---------|---------------|------|---------------|---------|-------|
 | **Send email** (`POST /emails`) | 10 req/sec/team (shared across all keys) | Pro €20/mo (no daily cap) | ✅ Implemented | None (no local limit) | Only used for feedback emails (~few/day). 429 tracked via metrics (`RecordRateLimit(RateLimitResendAPI)`). Daily/monthly quotas handled by Resend, not locally. |
 
-**Note:** Free tier = 100 emails/day, 3000/month. Pro (€20/mo) removes daily limit. We are on Pro. No local enforcement needed.
+- Free tier: 100 emails/day, 3000/month. Pro (€20/mo): no daily limit. We are on Pro → no local enforcement.
 
 ---
 
@@ -40,7 +42,8 @@ LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 |---------|---------------|-----------|---------------|---------|-------|
 | **Verify** (`POST /api/siteverify`) | 60K/min, unlimited per-day | 10K assessments/month (calendar month) | ✅ Implemented | None (no local limit) | 429 tracked via metrics (`RecordRateLimit(RateLimitRecaptchaAPI)`). Used only during feedback submission. At current volume (< 100/day) well within free quota. |
 
-**Warning:** Google cut free tier from 1M/month → 10K/month in April 2024. Premium: $8 flat for 10K–100K, then $1/1K over. If growth exceeds ~300 verifications/day sustained, consider upgrade or migration (e.g., Turnstile/FriendlyCaptcha).
+- Free tier cut 1M/month → 10K/month (April 2024). Premium: $8 flat for 10K–100K, then $1/1K over.
+- Open: if sustained > ~300 verifications/day → upgrade or migrate (Turnstile/FriendlyCaptcha).
 
 ---
 
@@ -61,7 +64,7 @@ LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 | **Webhook receipt** (incoming) | 240 req/min/IP | 240 req/min per IP | ✅ Handled | None | Webhooks come from Paddle, we respond quickly. 429 penalty: 60s IP block after exceeding. Preview endpoints: 1,000 req/min/IP (since 2026). |
 | **Paddle.js** (client-side checkout) | Per-client-IP (each visitor has own IP) | Same | ✅ Client-side | N/A | Not server-side. No API calls from backend. |
 
-**No outbound Paddle API calls.** We only receive webhooks and run client-side Paddle.js.
+- Outbound: only `POST /customers/{id}/portal-sessions` (`gates/paddle` `CreateCustomerPortal`, HTTP client `paddle`); no local limit.
 
 ---
 
@@ -69,7 +72,7 @@ LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 
 | Service | Official limit | Production | Bloomary impl | Storage | Notes |
 |---------|---------------|------------|---------------|---------|-------|
-| **StoreKit JWS verification** (receipt validation) | 50 req/sec per endpoint (hourly enforcement) | Per-app | ✅ Implemented | In-memory | Done client-side (StoreKit 2). Backend stores transaction but doesn't verify via Apple API — StoreKit 2 does server-side verification already. |
+| **StoreKit JWS verification** (receipt validation) | 50 req/sec per endpoint (hourly enforcement) | Per-app | ✅ Implemented | In-memory | Backend verifies StoreKit 2 JWS locally (`gates/appleiap` `SignedTransactionVerifier`, Apple Root CA - G3 chain); no Apple API call. |
 | **App Store Server API** (optional, for receipt validation) | See table below | Per-app | ❌ Not implemented | N/A | We don't call this API — reliance on StoreKit 2 for in-app purchase flow. |
 
 **App Store Server API rate limits** (if we ever integrate):
@@ -91,8 +94,8 @@ LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 | **Resend** | 10 req/sec team + tier quotas | Pro €20/mo (no daily cap) | ✅ Metrics only | None needed |
 | **reCAPTCHA** | 60K/min, 10K/month free | Free tier OK for now | ✅ Metrics only | None needed |
 | **Cloudflare R2** | 50 ops/sec/bucket (control), no hard cap (data) | Negligible volume | ✅ Presigned URLs | None needed |
-| **Paddle** | 240 req/min/IP (webhooks), preview 1K/min/IP | Incoming only | ✅ Handled | None needed |
-| **Apple StoreKit** | 50 req/sec/endpoint (if ASASA integrated) | Not used (client-side) | ❌ N/A | N/A |
+| **Paddle** | 240 req/min/IP (webhooks), preview 1K/min/IP | Incoming webhooks + outbound portal-session | ✅ Handled | None needed |
+| **Apple StoreKit** | 50 req/sec/endpoint (if ASASA integrated) | Local JWS verification, no Apple API calls | ❌ N/A | N/A |
 
 ## Implementation Details
 
@@ -111,10 +114,10 @@ LINKEDIN_DAILY_REQUEST_LIMIT = 20   (default, per member/day)
 ### IP-Based Daily Limiter (`gates/repositories/ratelimit/daily_ip_limiter.go`)
 - In-memory per-domain, per-IP daily counter
 - Resets at UTC midnight
-- Available as generic daily limiter (currently unused outside feedback?)
+- 6 instances (`main.go` `newEndpointLimiters`), per IP/day: token 3, feedback 10, CLI start 30, CLI result 300, entitlement 300, draft export 20
 
 ### Error Handling
 All third-party gates:
 - Track rate limit hits via `metrics.ProductCounters.RecordRateLimit(scope)`
 - Handle 429 with cooldown + `Retry-After` parsing (LinkedIn)
-- Record metrics via `httpclient.PathLabel` for observability
+- Record metrics via `httpclient.WithPathLabel` for observability

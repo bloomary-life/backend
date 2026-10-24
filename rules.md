@@ -107,7 +107,7 @@ func NewLinkedInAuthStory(
     linkedInGate linkedinDomain.Gate,
     accountRepo accountDomain.Repository,
     trialRepo trialDomain.Repository,
-) domainStories.LinkedInAuthStory {
+) accountDomain.LinkedInAuthStory {
     return &completeLinkedInAuthStory{
         linkedInGate: linkedInGate,
         accountRepo:  accountRepo,
@@ -115,7 +115,7 @@ func NewLinkedInAuthStory(
     }
 }
 
-func (s *completeLinkedInAuthStory) CompleteAuth(ctx context.Context, input domainStories.CompleteAuthInput) (domainStories.CompleteAuthOutput, error) {
+func (s *completeLinkedInAuthStory) CompleteAuth(ctx context.Context, input accountDomain.CompleteAuthInput) (accountDomain.CompleteAuthOutput, error) {
     // Logger must be in context
     logger := logger.FromContext(ctx)
     
@@ -125,7 +125,7 @@ func (s *completeLinkedInAuthStory) CompleteAuth(ctx context.Context, input doma
     s.accountRepo.Insert(ctx, token, profile)
     s.trialRepo.Ensure(ctx, profile.Email, profile.MemberID, time.Now().UTC())
     
-    return domainStories.CompleteAuthOutput{
+    return accountDomain.CompleteAuthOutput{
         AccessToken: token.AccessToken,
         Profile:     profile,
         ConnectedAt: time.Now().UTC(),
@@ -164,7 +164,7 @@ func (s *service) LinkedInToken(w http.ResponseWriter, r *http.Request) {
     }
     
     // 3. Call story
-    output, err := s.linkedInAuth.CompleteAuth(r.Context(), domainStories.CompleteAuthInput{
+    output, err := s.linkedInAuth.CompleteAuth(r.Context(), accountDomain.CompleteAuthInput{
         Code:         req.Code,
         RedirectURI:  req.RedirectURI,
         CodeVerifier: req.CodeVerifier,
@@ -220,8 +220,8 @@ All required dependencies MUST be validated in the constructor. Never check for 
 func NewLinkedInPostStory(
     linkedIn linkedinDomain.Gate,
     quota dailyDomain.QuotaConsumer,
-    productEvents domainMetrics.PostPublishRepository,
-) (domainStories.LinkedInPostStory, error) {
+    productEvents metricsDomain.PostPublishRepository,
+) (linkedinDomain.LinkedInPostStory, error) {
     if linkedIn == nil {
         return nil, fmt.Errorf("linkedin post story: linkedin gate is required")
     }
@@ -387,13 +387,11 @@ internal/
 ├── domain/              # Pure business logic
 │   ├── account/
 │   │   ├── contracts.go # Interfaces
-│   │   └── models.go    # Entities, value objects
-│   ├── entitlement/
-│   │   ├── contracts.go
-│   │   └── models.go
-│   └── stories/         # Story contracts (interfaces + I/O models)
-│       ├── contracts.go # Story interfaces
-│       └── models.go    # Input/output models
+│   │   ├── models.go    # Entities, value objects
+│   │   └── stories.go   # Story contracts (interfaces + I/O models)
+│   └── entitlement/
+│       ├── contracts.go
+│       └── models.go
 ├── stories/             # Story implementations
 │   ├── complete_linkedin_auth.go
 │   ├── feedback.go
@@ -443,7 +441,7 @@ packages:
       Repository:
 ```
 
-Generate with: `task generate` or `go run github.com/vektra/mockery/v3@v3.8.1`
+Generate: see [tests/README.md](tests/README.md#mock-generation).
 
 ### 10. Testing Strategy
 
@@ -460,30 +458,7 @@ Generate with: `task generate` or `go run github.com/vektra/mockery/v3@v3.8.1`
 - `internal/gates/linkedin/api_test.go` - Gate unit tests (mocks)
 - `internal/gates/linkedin/api_integration_test.go` - Gate integration tests (httptest)
 
-**Test Infrastructure:**
-```go
-// tests/base_suite.go - Reusable test suite with SQLite setup
-type BaseSuite struct {
-    suite.Suite
-    Ctx  context.Context
-    DB   *sql.DB
-    DBPath string
-    
-    // Repositories
-    AccountRepo     *accountRepo.SQLiteRepository
-    EntitlementRepo *entitlementRepo.SQLiteRepository
-    TrialRepo       *trialRepo.SQLiteRepository
-}
-
-func (s *BaseSuite) SetupSuite() {
-    s.DB = SQLiteConnect(s.Ctx, s.T(), s.DBPath)
-    // Initialize repositories...
-}
-
-func (s *BaseSuite) TearDownSuite() {
-    CleanupSQLite(s.T(), s.DB, s.DBPath)
-}
-```
+**Test Infrastructure:** `tests/BaseSuite` (SQLite setup, repositories, helpers) — see [tests/README.md](tests/README.md).
 
 **Gate Integration Test Pattern:**
 ```go
@@ -510,14 +485,6 @@ func (s *APIIntegrationSuite) TestExchangeCode_RequestFormat() {
 }
 ```
 
-**Import Aliasing** 
-
-linkedinDomain "bloomary-api/internal/domain/linkedin"
-linkedinGate "bloomary-api/internal/gates/linkedin"
-metricsRepo "bloomary-api/internal/gates/repositories/metrics"
-oauthStateRepo "bloomary-api/internal/gates/repositories/oauth_state"
-
-
 **Story Test Pattern:**
 ```go
 // Use generated mocks for story dependencies
@@ -530,7 +497,7 @@ func (s *FeedbackStorySuite) TestSubmitFeedback_Success() {
     
     story := NewFeedbackStory(mockResendGate, mockRecaptchaGate, counters)
     
-    err := story.SubmitFeedback(s.Ctx, domainStories.FeedbackInput{
+    err := story.SubmitFeedback(s.Ctx, feedbackDomain.Input{
         Name:              "John Doe",
         Message:           "I love using Bloomary!",
         RecaptchaResponse: "valid-captcha",
@@ -671,6 +638,8 @@ func (s *GetUserStory) Execute(ctx context.Context, id string) (User, error) {
 | Gate (external service) | `<name>Gate` | `linkedinGate "bloomary-api/internal/gates/linkedin"` |
 | Repository (persistence) | `<name>Repo` | `accountRepo "bloomary-api/internal/gates/repositories/account"` |
 
+Aliases in use: `linkedinDomain` (`domain/linkedin`), `paddleDomain` (`domain/paddle_entitlement`), `appleiapDomain` (`domain/appleiap`), `linkedinGate` (`gates/linkedin`), `metricsRepo` (`gates/repositories/metrics`), `oauthStateRepo` (`gates/repositories/oauth_state`).
+
 **CORRECT:**
 ```go
 import (
@@ -690,4 +659,4 @@ import (
 )
 ```
 
-**Why:** When reading code, `accountDomain.Repository` vs `accountRepo.SQLiteRepository` immediately tells you whether you're looking at a domain interface or an infrastructure implementation. This prevents accidental layer violations and makes code reviews faster.
+**Why:** `accountDomain.Repository` vs `accountRepo.SQLiteRepository` shows domain interface vs infrastructure implementation at a glance → fewer accidental layer violations, faster reviews.

@@ -88,11 +88,4 @@ internal/
 
 ## Import Aliasing
 
-```sh
-linkedinDomain "bloomary-api/internal/domain/linkedin"
-paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
-appleDomain "bloomary-api/internal/domain/apple_entitlement"
-linkedinGate "bloomary-api/internal/gates/linkedin"
-metricsRepo "bloomary-api/internal/gates/repositories/metrics"
-oauthStateRepo "bloomary-api/internal/gates/repositories/oauth_state"
-```
+See [rules.md](rules.md#import-aliasing).

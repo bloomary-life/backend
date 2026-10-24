@@ -18,5 +18,4 @@ SQLite translation for Bloomary:
 - keep `db.SetMaxOpenConns(1)` for SQLite writer safety;
 - expose account repository methods by analogy with compliance-auditor repositories: `Insert`, `ByMemberID`, `Delete`;
 - use `INSERT ... ON CONFLICT DO UPDATE` for account insert/upsert;
-- keep `daily` (quota + post count) in its own gate repository;
-- keep this as a sample until the current `package main` structs are moved/exported.
+- keep `daily` (quota + post count) in its own gate repository.

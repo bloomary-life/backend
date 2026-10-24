@@ -1,10 +1,7 @@
 # Bloomary Backend Test Infrastructure
 
-This directory contains the test infrastructure for the Bloomary backend, including SQLite test database setup and reusable test suites.
-
 ## Overview
 
-The test infrastructure provides:
 - **SQLite test database helpers** for isolated, file-based testing
 - **BaseSuite** with pre-configured repositories and helper methods
 - **Example tests** demonstrating usage patterns
@@ -15,6 +12,8 @@ The test infrastructure provides:
 tests/
 ├── db.go              # SQLite connection and cleanup helpers
 ├── base_suite.go      # BaseSuite with repository initialization
+├── context.go         # TestContext(): context with discard logger
+├── fakes.go           # FakePostPublishRepository test fake
 ├── example_test.go    # Example test suite
 └── README.md          # This file
 ```
@@ -51,7 +50,7 @@ func (s *MyFeatureSuite) TestSomething() {
 
 - `AccountRepo` - LinkedIn account management
 - `DraftRepo` - Draft post management
-- `EntitlementRepo` - Pro entitlement tracking
+- `EntitlementRepo` - Pro entitlement tracking (Paddle)
 - `DailyRepo` - Daily post quota and post count
 - `TrialRepo` - Free trial management
 
@@ -91,24 +90,29 @@ Mocks are generated using [mockery](https://github.com/vektra/mockery) for all d
 task generate
 
 # Or directly
-go run github.com/vektra/mockery/v2
+go run github.com/vektra/mockery/v3@v3.8.1
 ```
 
 ### Mock Locations
 
 Mocks are generated in `internal/mocks/` mirroring the package structure:
 - `internal/mocks/domain/account/` - Account domain mocks
+- `internal/mocks/domain/appleiap/` - Apple IAP domain mocks
 - `internal/mocks/domain/draft/` - Draft domain mocks
 - `internal/mocks/domain/entitlement/` - Entitlement domain mocks
+- `internal/mocks/domain/feedback/` - Feedback domain mocks
 - `internal/mocks/domain/linkedin/` - LinkedIn gate mocks
+- `internal/mocks/domain/metrics/` - Metrics domain mocks
+- `internal/mocks/domain/paddle_entitlement/` - Paddle entitlement domain mocks
 - `internal/mocks/domain/recaptcha/` - Recaptcha gate mocks
 - `internal/mocks/domain/resend/` - Resend gate mocks
 - `internal/mocks/domain/daily/` - Daily quota domain mocks
+- `internal/mocks/domain/scheduledpost/` - Scheduled post domain mocks
 - `internal/mocks/domain/trial/` - Trial domain mocks
 - `internal/mocks/domain/limiter/` - Limiter domain mocks
 - `internal/mocks/platform/httpclient/` - HTTP client mocks
 
-This follows DDD principles by keeping test infrastructure separate from the pure domain layer.
+Placement rule (mocks outside the domain layer): [rules.md](../rules.md#9-file-organization).
 
 ### Using Mocks
 
