@@ -47,6 +47,7 @@ func TestScheduleAllowsTrialMember(t *testing.T) {
 	}
 }
 
+// Verifies: BE-004
 func TestScheduleRetryFailsJobOnDailyLimit(t *testing.T) {
 	jobs := scheduleMocks.NewMockRepository(t)
 	jobs.EXPECT().Update(mock.Anything, "job-1", scheduleDomain.Failed, "", mock.Anything).Return(nil).Once()

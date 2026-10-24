@@ -198,6 +198,7 @@ func testSignedPayload(t *testing.T, leaf *x509.Certificate, leafKey *ecdsa.Priv
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
+// Verifies: BE-003
 func TestSignedTransactionVerifierDefaultTrustsOnlyAppleRootCAG3(t *testing.T) {
 	verifier, err := NewSignedTransactionVerifier("com.dailymind.bloomary", []string{"bloomary.pro.monthly"})
 	require.NoError(t, err)
