@@ -251,3 +251,53 @@ func (s *LinkedInPostStorySuite) TestCreatePost_UploadMedia_Success() {
 	s.Require().NoError(err)
 	s.Equal("urn:li:post:doc", output.PostID)
 }
+
+// Verifies: BE-005
+func (s *LinkedInPostStorySuite) TestCreatePost_LeavesPublishCounterToGate() {
+	linkedIn := new(linkedinMocks.MockGate)
+	quota := new(mockQuotaConsumer)
+	accountRepo := new(accountMocks.MockRepository)
+	entitlementRepo := new(paddleEntitlementMocks.MockRepository)
+	trialRepo := new(trialMocks.MockRepository)
+	dailyRepo := new(dailyMocks.MockRepository)
+	productEvents := new(mockProductEvents)
+
+	s.setupEntitlementMocks(accountRepo, entitlementRepo, trialRepo, true, time.Time{})
+	quota.On("Consume", s.Ctx, "member-123", mock.AnythingOfType("time.Time")).Return(true, nil)
+	linkedIn.On("PublishPost", s.Ctx, "access-token", mock.Anything).Return("urn:li:post:123", nil)
+	dailyRepo.On("MarkPosted", s.Ctx, "member-123", mock.AnythingOfType("time.Time")).Return(nil)
+	productEvents.On("RecordPostPublished", s.Ctx, "member-123", mock.AnythingOfType("time.Time")).Return(nil)
+
+	story := s.newStory(linkedIn, quota, accountRepo, entitlementRepo, trialRepo, dailyRepo, productEvents)
+	counters := &countingRecorder{}
+	story.(*linkedInPostStory).counters = counters
+
+	_, err := story.CreatePost(s.Ctx, linkedinDomain.CreatePostInput{
+		AccessToken: "access-token",
+		MemberID:    "member-123",
+		Commentary:  "Hello world",
+		Visibility:  "PUBLIC",
+	})
+
+	s.Require().NoError(err)
+	s.Empty(counters.calls)
+}
+
+// countingRecorder records which counters a story touched.
+type countingRecorder struct{ calls []string }
+
+func (r *countingRecorder) RecordPostPublish(result string) {
+	r.calls = append(r.calls, "post:"+result)
+}
+func (r *countingRecorder) RecordLinkedInAuth(result string) {
+	r.calls = append(r.calls, "auth:"+result)
+}
+func (r *countingRecorder) RecordFeedback(result, kind string) {
+	r.calls = append(r.calls, "feedback:"+result+":"+kind)
+}
+func (r *countingRecorder) RecordRateLimit(scope string) {
+	r.calls = append(r.calls, "ratelimit:"+scope)
+}
+func (r *countingRecorder) RecordPaddleWebhook(eventType, result string) {
+	r.calls = append(r.calls, "paddle:"+eventType+":"+result)
+}

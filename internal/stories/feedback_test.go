@@ -181,3 +181,21 @@ func (s *FeedbackStorySuite) TestSubmitFeedback_EmptyRecaptchaStillVerified() {
 	mockResendGate.AssertExpectations(s.T())
 	mockRecaptchaGate.AssertExpectations(s.T())
 }
+
+// Verifies: BE-005
+func (s *FeedbackStorySuite) TestSubmitFeedback_LeavesSendCounterToGate() {
+	mockResendGate := new(resendMocks.MockGate)
+	mockRecaptchaGate := new(recaptchaMocks.MockCaptcha)
+	counters := &countingRecorder{}
+
+	mockResendGate.On("SendFeedback", s.Ctx, mock.Anything).Return(errors.New("resend down")).Once()
+	mockResendGate.On("SendFeedback", s.Ctx, mock.Anything).Return(nil).Once()
+
+	story, err := NewFeedbackStory(mockResendGate, mockRecaptchaGate, counters)
+	s.Require().NoError(err)
+
+	input := feedbackDomain.Input{Message: "Hi", Authorized: true}
+	s.Require().Error(story.SubmitFeedback(s.Ctx, input))
+	s.Require().NoError(story.SubmitFeedback(s.Ctx, input))
+	s.Empty(counters.calls)
+}

@@ -91,7 +91,6 @@ func (s *linkedInPostStory) CreatePost(
 
 	postID, err := s.linkedIn.PublishPost(ctx, input.AccessToken, post)
 	if err != nil {
-		s.counters.RecordPostPublish(metricsDomain.ResultError)
 		return linkedinDomain.CreatePostOutput{}, fmt.Errorf("publish failed: %w", err)
 	}
 
@@ -102,8 +101,6 @@ func (s *linkedInPostStory) CreatePost(
 	if err := s.dailyRepo.MarkPosted(ctx, input.MemberID, now.UTC()); err != nil {
 		logger.FromContext(ctx).WithError(err).Error("mark_linkedin_posted_failed")
 	}
-
-	s.counters.RecordPostPublish(metricsDomain.ResultSuccess)
 
 	output := linkedinDomain.CreatePostOutput{
 		PostID:      postID,

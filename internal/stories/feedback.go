@@ -82,12 +82,9 @@ func (s *feedbackStory) SubmitFeedback(ctx context.Context, input feedbackDomain
 	// Send feedback via Resend
 	if err := s.resendGate.SendFeedback(ctx, feedback); err != nil {
 		logger.FromContext(ctx).WithError(err).Error("feedback_send_failed")
-		s.counters.RecordFeedback(metricsDomain.ResultError, metricsDomain.FeedbackKindFeedback)
 		return perror.New(perror.ErrCodeBadGateway, err, "failed to send feedback")
 	}
 
-	// Record success metrics
-	s.counters.RecordFeedback(metricsDomain.ResultSuccess, metricsDomain.FeedbackKindFeedback)
 	logger.FromContext(ctx).Info("feedback_sent_successfully")
 
 	return nil
