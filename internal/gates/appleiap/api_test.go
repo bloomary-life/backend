@@ -197,3 +197,12 @@ func testSignedPayload(t *testing.T, leaf *x509.Certificate, leafKey *ecdsa.Priv
 	signature := append(r.FillBytes(make([]byte, 32)), s.FillBytes(make([]byte, 32))...)
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
+
+func TestSignedTransactionVerifierDefaultTrustsOnlyAppleRootCAG3(t *testing.T) {
+	verifier, err := NewSignedTransactionVerifier("com.dailymind.bloomary", []string{"bloomary.pro.monthly"})
+	require.NoError(t, err)
+
+	expected := x509.NewCertPool()
+	require.True(t, expected.AppendCertsFromPEM([]byte(appleRootCAG3PEM)))
+	require.True(t, verifier.roots.Equal(expected))
+}

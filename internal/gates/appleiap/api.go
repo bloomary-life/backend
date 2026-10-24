@@ -66,11 +66,9 @@ func NewSignedTransactionVerifier(bundleID string, productIDs []string, opts ...
 		opt(verifier)
 	}
 	if verifier.roots == nil {
-		roots, err := x509.SystemCertPool()
-		if err != nil {
-			return nil, fmt.Errorf("apple transaction verifier: system cert pool: %w", err)
-		}
-		// Apple Root CA - G3 (covers both production and sandbox StoreKit JWS)
+		// Trust only Apple Root CA - G3 (covers both production and sandbox
+		// StoreKit JWS); system roots would accept any public CA's leaf.
+		roots := x509.NewCertPool()
 		if ok := roots.AppendCertsFromPEM([]byte(appleRootCAG3PEM)); !ok {
 			return nil, fmt.Errorf("apple transaction verifier: failed to append Apple Root CA - G3")
 		}
