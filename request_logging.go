@@ -99,18 +99,22 @@ func redactedQuery(values url.Values) url.Values {
 }
 
 func logResponseData(data, contentType string) string {
-	if data == "" || !strings.Contains(strings.ToLower(contentType), "json") {
+	if data == "" {
 		return data
+	}
+	// Non-JSON bodies (draft export zips, HTML pages) cannot be redacted field by field.
+	if !strings.Contains(strings.ToLower(contentType), "json") {
+		return redactedLogValue
 	}
 
 	var value any
 	if err := json.Unmarshal([]byte(data), &value); err != nil {
-		return data
+		return redactedLogValue
 	}
 
 	redacted, err := json.Marshal(redactSensitiveJSON(value))
 	if err != nil {
-		return data
+		return redactedLogValue
 	}
 
 	return string(redacted)
@@ -156,7 +160,7 @@ func redactSensitiveString(value string) string {
 
 func isSensitiveLogKey(key string) bool {
 	key = strings.ToLower(key)
-	for _, marker := range []string{"authorization", "token", "secret", "password", "code", "state", "email"} {
+	for _, marker := range []string{"authorization", "token", "secret", "password", "code", "state", "email", "body", "name", "picture", "content", "signature"} {
 		if strings.Contains(key, marker) {
 			return true
 		}
