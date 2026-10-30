@@ -10,6 +10,15 @@ Other parts: [backend](https://github.com/bloomary-life/backend) · [ios](https:
 go test ./...
 ```
 
+## Optional features
+
+| # | Env var | Turns on |
+|---|---|---|
+| 1 | `BLOOMARY_USER_BOT_TOKEN`, `BLOOMARY_USER_BOT_USERNAME`, `BLOOMARY_USER_BOT_WEBHOOK_SECRET` | Telegram bot (`POST /api/telegram/webhook`): insights, approval previews, comment ideas; off while the token is empty |
+| 2 | `DEEPGRAM_API_KEY` | Voice notes to the bot are transcribed (audio is never stored) |
+
+MCP tools (`/mcp`): `list_drafts`, `get_draft`, `create_draft`, `update_draft`, `attach_image`, `schedule_draft`, `request_approval`, `list_insights`, `mark_insight_used`, `send_suggestion`, `list_feedback`. Scopes: `drafts:read`, `drafts:write`, `insights:read`, `insights:write`.
+
 ## Contributing
 
 Bloomary is open source and welcomes edits. Before you start, check open issues and pull requests and ask in an issue or in the [Bloomary community on Telegram](https://t.me/+NDQcpuABme9iYTU0) whether the change is planned or already taken. See [CONTRIBUTING.md](CONTRIBUTING.md). Contributors sign the [CLA](CLA.md) on their first pull request: copyright in contributions is assigned to DailyMind LTD.

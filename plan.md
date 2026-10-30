@@ -8,6 +8,9 @@ internal/
 │   ├── account/                    OK: repository/OAuth-state ports + auth/deletion contracts.
 │   ├── appleiap/                   OK: Apple IAP bounded context.
 │   ├── draft/                      OK: member-scoped repository operations + one MCP story interface per operation.
+│   ├── insight/                    OK: ideas sent to the Telegram bot (text or transcribed voice).
+│   ├── review/                     OK: MCP approval previews, comment suggestions, feedback + word diff.
+│   ├── telegram/                   OK: user bot gate, transcriber, link repository, bot/link stories.
 │   ├── entitlement/                OK: unified access aggregate (Paddle + Apple + Trial).
 │   ├── feedback/                   OK: feedback use-case language.
 │   ├── limiter/                    OK: rate-limit language.
