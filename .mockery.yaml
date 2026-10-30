@@ -46,6 +46,11 @@ packages:
       dir: internal/mocks/domain/feedback
     interfaces:
       FeedbackStory: {}
+  bloomary-api/internal/domain/insight:
+    config:
+      dir: internal/mocks/domain/insight
+    interfaces:
+      Repository: {}
   bloomary-api/internal/domain/limiter:
     config:
       dir: internal/mocks/domain/limiter

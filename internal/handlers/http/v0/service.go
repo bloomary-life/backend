@@ -12,6 +12,7 @@ import (
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	feedbackDomain "bloomary-api/internal/domain/feedback"
+	insightDomain "bloomary-api/internal/domain/insight"
 	limiterDomain "bloomary-api/internal/domain/limiter"
 	linkedinDomain "bloomary-api/internal/domain/linkedin"
 	mcpDomain "bloomary-api/internal/domain/mcp"
@@ -79,6 +80,8 @@ type service struct {
 	getMCPDraftStory      draftDomain.GetMCPDraftStory
 	createMCPDraftStory   draftDomain.CreateMCPDraftStory
 	updateMCPDraftStory   draftDomain.UpdateMCPDraftStory
+	listInsightsStory     insightDomain.ListMCPInsightsStory
+	markInsightUsedStory  insightDomain.MarkMCPInsightUsedStory
 	mcpAuthorizationStory mcpDomain.AuthorizationStory
 	mcpTokenVerifier      mcpDomain.AccessTokenVerifier
 	mcpGrants             mcpDomain.GrantStore
@@ -129,6 +132,8 @@ type ApplicationStories struct {
 	GetMCPDraft        draftDomain.GetMCPDraftStory
 	CreateMCPDraft     draftDomain.CreateMCPDraftStory
 	UpdateMCPDraft     draftDomain.UpdateMCPDraftStory
+	ListMCPInsights    insightDomain.ListMCPInsightsStory
+	MarkMCPInsightUsed insightDomain.MarkMCPInsightUsedStory
 	DraftImages        draftDomain.ImageStory
 	AppleTransaction   appleiapDomain.TransactionSyncStory
 	AppleNotifications appleiapDomain.NotificationStory
@@ -196,6 +201,8 @@ func NewService(
 		getMCPDraftStory:      appStories.GetMCPDraft,
 		createMCPDraftStory:   appStories.CreateMCPDraft,
 		updateMCPDraftStory:   appStories.UpdateMCPDraft,
+		listInsightsStory:     appStories.ListMCPInsights,
+		markInsightUsedStory:  appStories.MarkMCPInsightUsed,
 		mcpAuthorizationStory: appStories.MCPAuthorization,
 		mcpTokenVerifier:      appStories.MCPTokenVerifier,
 		mcpGrants:             appStories.MCPGrants,
@@ -227,6 +234,7 @@ func validateApplicationStories(app ApplicationStories) error {
 		{"LinkedIn auth", app.LinkedInAuth}, {"draft sync", app.SyncDrafts}, {"draft export", app.ExportDrafts},
 		{"MCP list drafts", app.ListMCPDrafts}, {"MCP get draft", app.GetMCPDraft},
 		{"MCP create draft", app.CreateMCPDraft}, {"MCP update draft", app.UpdateMCPDraft},
+		{"MCP list insights", app.ListMCPInsights}, {"MCP mark insight used", app.MarkMCPInsightUsed},
 		{"Apple transaction", app.AppleTransaction},
 		{"Apple notifications", app.AppleNotifications}, {"Paddle webhook", app.PaddleWebhook}, {"Paddle billing", app.PaddleBilling},
 		{"account deletion", app.AccountDeletion}, {"entitlement access", app.Access},

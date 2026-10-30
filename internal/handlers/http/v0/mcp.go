@@ -19,6 +19,8 @@ const (
 	mcpTokenLifetime = 30 * 24 * time.Hour
 )
 
+var mcpSupportedScopes = []string{"drafts:read", "drafts:write", "insights:read", "insights:write"}
+
 type mcpMemberKey struct{}
 type mcpClaimsKey struct{}
 
@@ -102,6 +104,7 @@ func (s *service) newMCPHandler() http.Handler {
 			draft, err := s.updateMCPDraftStory.Update(ctx, memberID, input.DraftID, input.Body)
 			return nil, toMCPDraft(draft), err
 		})
+	s.addMCPContentTools(server)
 
 	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
@@ -199,7 +202,7 @@ func (s *service) parseMCPToken(ctx context.Context, token string) (mcpTokenClai
 	if claims.Issuer != s.config.MCPIssuerURL || claims.Subject == "" || claims.Audience != s.config.MCPResourceURL || claims.Expires <= now || claims.IssuedAt > now {
 		return mcpTokenClaims{}, errors.New("expired or invalid MCP token claims")
 	}
-	if !hasMCPClaim(claims.Scope, "drafts:read") && !hasMCPClaim(claims.Scope, "drafts:write") {
+	if !hasAnyMCPClaim(claims.Scope, mcpSupportedScopes) {
 		return mcpTokenClaims{}, errors.New("MCP token scope is insufficient")
 	}
 	return claims, nil
@@ -214,6 +217,15 @@ func (s *service) mcpSigningKey() []byte {
 func hasMCPClaim(scopes []string, expected string) bool {
 	for _, scope := range scopes {
 		if scope == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyMCPClaim(scopes, supported []string) bool {
+	for _, scope := range supported {
+		if hasMCPClaim(scopes, scope) {
 			return true
 		}
 	}

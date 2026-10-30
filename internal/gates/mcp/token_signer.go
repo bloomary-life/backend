@@ -91,7 +91,8 @@ func (s *TokenSigner) Verify(token, issuer, audience string, now time.Time) (str
 	if c.Issuer != issuer || c.Subject == "" || c.GrantID == "" || c.Audience != audience || c.Expires <= now.Unix() || c.IssuedAt > now.Unix() {
 		return "", nil, "", errors.New("expired or invalid MCP token claims")
 	}
-	if !hasScope(c.Scope, "drafts:read") && !hasScope(c.Scope, "drafts:write") {
+	if !hasScope(c.Scope, "drafts:read") && !hasScope(c.Scope, "drafts:write") &&
+		!hasScope(c.Scope, "insights:read") && !hasScope(c.Scope, "insights:write") {
 		return "", nil, "", errors.New("MCP token scope is insufficient")
 	}
 	return c.Subject, c.Scope, c.GrantID, nil

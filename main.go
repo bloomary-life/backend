@@ -397,6 +397,14 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
+	listMCPInsights, err := stories.NewListMCPInsights(access, store.insightRepo)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
+	markMCPInsightUsed, err := stories.NewMarkMCPInsightUsed(access, store.insightRepo, store.draftRepo)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
 	var mcpAuthorization mcpDomain.AuthorizationStory
 	var mcpTokenVerifier mcpDomain.AccessTokenVerifier
 	if config.MCPAccessTokenSecret != "" {
@@ -453,6 +461,7 @@ func newApplicationStories(
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
 		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,
+		ListMCPInsights: listMCPInsights, MarkMCPInsightUsed: markMCPInsightUsed,
 		AppleTransaction: appleSync, AppleNotifications: appleNotifications,
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,
 		Access: access, ScheduledPost: schedule, MCPAuthorization: mcpAuthorization, MCPTokenVerifier: mcpTokenVerifier, MCPGrants: store.mcpOAuthState,

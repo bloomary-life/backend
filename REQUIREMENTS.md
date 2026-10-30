@@ -11,6 +11,7 @@ Format and evidence rules: [CONTRIBUTING.md](CONTRIBUTING.md). Check: `scripts/t
 | BE-005 | When a post is published or feedback is sent, `posts_publish_total` and `feedback_total` grow by one (recorded by the gate only, not again by the story). | Nightly review 2026-10-24 | active |
 | BE-006 | When a draft sync request has an invalid upsert (missing id, body too long), it is rejected before any stored draft image is deleted. | Nightly review 2026-10-24 | active |
 | BE-007 | When a response body is logged, draft text, profile names and pictures, MCP content, URL signatures and any non-JSON body are redacted. | Nightly review 2026-10-24 (GDPR) | active |
+| BE-008 | When an MCP client with `insights:read` calls `list_insights`, it gets only the signed-in member's insights (filtered by `since` and `unused_only`); `mark_insight_used` with `insights:write` links an insight to that member's own draft. | Content engine plan, Kat 2026-10-30 | active |
 <!-- Add rows like:
 | BE-001 | When <condition>, <system> <observable result>. | <issue / spec link> | active |
 -->

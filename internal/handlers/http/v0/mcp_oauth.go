@@ -175,7 +175,7 @@ func (s *service) MCPAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	scopes, err := mcpRequestedScopes(query.Get("scope"))
 	if err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_scope", "supported scopes: drafts:read drafts:write")
+		writeAPIError(w, http.StatusBadRequest, "invalid_scope", "supported scopes: "+strings.Join(mcpSupportedScopes, " "))
 		return
 	}
 	auth := mcpAuthorization{ClientID: clientID, RedirectURI: redirectURI, State: state, Challenge: challenge,
@@ -260,7 +260,7 @@ func (s *service) renderMCPConsent(w http.ResponseWriter, consent mcpDomain.Cons
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	client, _ := s.parseMCPClient(auth.ClientID)
-	_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body><main><h1>Connect Bloomary</h1><p><strong>%s</strong> requests access to your Bloomary drafts.</p><p>Permissions: %s.</p><p>Only active paid plans can connect. The app name is supplied by the connecting client; verify it in ChatGPT or Claude before allowing.</p><form method="post" action="/oauth/authorize/consent"><input type="hidden" name="consent_id" value="%s"><button name="decision" value="approve">Allow</button> <button name="decision" value="deny">Cancel</button></form></main></body></html>`, html.EscapeString(client.Name), html.EscapeString(mcpScopeDescription(auth.Scope)), html.EscapeString(consent.ID))
+	_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body><main><h1>Connect Bloomary</h1><p><strong>%s</strong> requests access to your Bloomary drafts and insights.</p><p>Permissions: %s.</p><p>Only active paid plans can connect. The app name is supplied by the connecting client; verify it in ChatGPT or Claude before allowing.</p><form method="post" action="/oauth/authorize/consent"><input type="hidden" name="consent_id" value="%s"><button name="decision" value="approve">Allow</button> <button name="decision" value="deny">Cancel</button></form></main></body></html>`, html.EscapeString(client.Name), html.EscapeString(mcpScopeDescription(auth.Scope)), html.EscapeString(consent.ID))
 }
 
 func (s *service) failMCPLogin(w http.ResponseWriter, r *http.Request, linkedinState, code, description string) {
@@ -348,7 +348,7 @@ func (s *service) MCPResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"resource": s.config.MCPResourceURL,
-		"authorization_servers": []string{s.config.MCPIssuerURL}, "scopes_supported": []string{"drafts:read", "drafts:write"}})
+		"authorization_servers": []string{s.config.MCPIssuerURL}, "scopes_supported": mcpSupportedScopes})
 }
 
 func (s *service) MCPOAuthMetadata(w http.ResponseWriter, r *http.Request) {
@@ -362,7 +362,7 @@ func (s *service) MCPOAuthMetadata(w http.ResponseWriter, r *http.Request) {
 		"registration_endpoint": s.config.MCPIssuerURL + "/oauth/register", "response_types_supported": []string{"code"},
 		"client_id_metadata_document_supported": false,
 		"grant_types_supported":                 []string{"authorization_code"}, "code_challenge_methods_supported": []string{"S256"},
-		"token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": []string{"drafts:read", "drafts:write"}})
+		"token_endpoint_auth_methods_supported": []string{"none"}, "scopes_supported": mcpSupportedScopes})
 }
 
 func (s *service) redirectMCPError(w http.ResponseWriter, r *http.Request, auth mcpAuthorization, code, description string) {
@@ -419,18 +419,24 @@ func mcpScopeDescription(scopes []string) string {
 		permissions = append(permissions, "list and read drafts")
 	}
 	if containsString(scopes, "drafts:write") {
-		permissions = append(permissions, "create and update drafts")
+		permissions = append(permissions, "create, update, illustrate and schedule drafts (posting waits for your approval in Telegram)")
+	}
+	if containsString(scopes, "insights:read") {
+		permissions = append(permissions, "read your insights and feedback")
+	}
+	if containsString(scopes, "insights:write") {
+		permissions = append(permissions, "mark insights used and send comment ideas to your Telegram")
 	}
 	return strings.Join(permissions, "; ")
 }
 
 func mcpRequestedScopes(raw string) ([]string, error) {
 	if strings.TrimSpace(raw) == "" {
-		return []string{"drafts:read", "drafts:write"}, nil
+		return append([]string(nil), mcpSupportedScopes...), nil
 	}
 	var scopes []string
 	for _, scope := range strings.Fields(raw) {
-		if scope != "drafts:read" && scope != "drafts:write" {
+		if !containsString(mcpSupportedScopes, scope) {
 			return nil, errors.New("unsupported scope")
 		}
 		if !containsString(scopes, scope) {

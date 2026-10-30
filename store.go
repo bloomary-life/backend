@@ -12,6 +12,7 @@ import (
 	appleiapDomain "bloomary-api/internal/domain/appleiap"
 	dailyDomain "bloomary-api/internal/domain/daily"
 	draftDomain "bloomary-api/internal/domain/draft"
+	insightDomain "bloomary-api/internal/domain/insight"
 	paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
 	trialDomain "bloomary-api/internal/domain/trial"
@@ -19,6 +20,7 @@ import (
 	appleEntitlementRepo "bloomary-api/internal/gates/repositories/apple_entitlement"
 	dailyRepo "bloomary-api/internal/gates/repositories/daily"
 	draftRepo "bloomary-api/internal/gates/repositories/draft"
+	insightRepo "bloomary-api/internal/gates/repositories/insight"
 	mcpOAuthRepo "bloomary-api/internal/gates/repositories/mcp_oauth"
 	paddleRepo "bloomary-api/internal/gates/repositories/paddle_entitlement"
 	scheduledRepo "bloomary-api/internal/gates/repositories/scheduledpost"
@@ -37,6 +39,7 @@ type authStore struct {
 	appleEntitlementRepo appleiapDomain.EntitlementRepository
 	trialRepo            trialDomain.Repository
 	scheduledPostRepo    scheduledDomain.Repository
+	insightRepo          insightDomain.Repository
 	mcpOAuthState        *mcpOAuthRepo.SQLiteStateStore
 }
 
@@ -127,10 +130,16 @@ func newAuthStoreWithBilling(path string, freeTierDays int, trialHMACSecret stri
 		_ = db.Close()
 		return nil, err
 	}
+	insights, err := insightRepo.NewSQLiteRepository(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	store := &authStore{
 		db: db, accountRepo: accountRepo, dailyRepo: dailyRepo, draftRepo: draftRepo,
 		paddleRepo: paddleRepo, paddleBillingRepo: paddleRepo, appleEntitlementRepo: appleEntitlementRepo, trialRepo: trialRepo, scheduledPostRepo: scheduledPostRepo, mcpOAuthState: mcpOAuthState,
+		insightRepo: insights,
 	}
 	return store, nil
 }
