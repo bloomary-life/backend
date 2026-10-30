@@ -35,22 +35,35 @@ func NewFirstComments(reviews reviewDomain.Repository, notifier telegramDomain.N
 	return &FirstComments{reviews: reviews, notifier: notifier}, nil
 }
 
-func (s *FirstComments) Save(ctx context.Context, memberID, draftID, text string) error {
+// Save keeps the comment for that schedule only: a later schedule of the same draft (e.g. from the web app)
+// never sends it.
+func (s *FirstComments) Save(ctx context.Context, memberID, draftID, scheduleID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > reviewDomain.MaxFirstCommentRunes {
 		return fmt.Errorf("first_comment must be 1-%d characters", reviewDomain.MaxFirstCommentRunes)
 	}
-	return s.reviews.SaveFirstComment(ctx, memberID, draftID, text, time.Now().UTC())
+	return s.reviews.SaveFirstComment(ctx, memberID, draftID, scheduleID, text, time.Now().UTC())
+}
+
+func (s *FirstComments) Clear(ctx context.Context, memberID, draftID string) error {
+	return s.reviews.DeleteFirstComment(ctx, memberID, draftID)
 }
 
 // PostPublished sends the first comment, if the draft has one; failures are logged, the post is already live.
 func (s *FirstComments) PostPublished(ctx context.Context, post scheduledDomain.Post) {
-	text, err := s.reviews.FirstComment(ctx, post.MemberID, post.DraftID)
+	text, scheduleID, err := s.reviews.FirstComment(ctx, post.MemberID, post.DraftID)
 	if errors.Is(err, reviewDomain.ErrNotFound) {
 		return
 	}
 	if err != nil {
 		logger.FromContext(ctx).WithError(err).Error("first_comment_lookup_failed")
+		return
+	}
+	// Sent once, and only for the schedule it was written for.
+	if err := s.reviews.DeleteFirstComment(ctx, post.MemberID, post.DraftID); err != nil {
+		logger.FromContext(ctx).WithError(err).Error("first_comment_delete_failed")
+	}
+	if scheduleID != post.ID {
 		return
 	}
 	var row []telegramDomain.Button

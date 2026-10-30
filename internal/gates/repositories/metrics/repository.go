@@ -40,6 +40,14 @@ ON metric_post_publishes (published_at, member_id)`); err != nil {
 	return nil
 }
 
+// DeleteByMemberID removes the member's publish events (account deletion).
+func (r *PostPublishRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM metric_post_publishes WHERE member_id = ?`, memberID); err != nil {
+		return fmt.Errorf("delete post publish metrics member_id=%q: %w", memberID, err)
+	}
+	return nil
+}
+
 func (r *PostPublishRepository) RecordPostPublished(ctx context.Context, memberID string, now time.Time) error {
 	memberID = strings.TrimSpace(memberID)
 	if memberID == "" {

@@ -235,3 +235,54 @@ func (_c *MockLinkStory_Unlink_Call) RunAndReturn(run func(ctx context.Context, 
 	_c.Call.Return(run)
 	return _c
 }
+
+// VoiceAllowed provides a mock function for the type MockLinkStory
+func (_mock *MockLinkStory) VoiceAllowed(memberID string) bool {
+	ret := _mock.Called(memberID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for VoiceAllowed")
+	}
+
+	var r0 bool
+	if returnFunc, ok := ret.Get(0).(func(string) bool); ok {
+		r0 = returnFunc(memberID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	return r0
+}
+
+// MockLinkStory_VoiceAllowed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VoiceAllowed'
+type MockLinkStory_VoiceAllowed_Call struct {
+	*mock.Call
+}
+
+// VoiceAllowed is a helper method to define mock.On call
+//   - memberID string
+func (_e *MockLinkStory_Expecter) VoiceAllowed(memberID any) *MockLinkStory_VoiceAllowed_Call {
+	return &MockLinkStory_VoiceAllowed_Call{Call: _e.mock.On("VoiceAllowed", memberID)}
+}
+
+func (_c *MockLinkStory_VoiceAllowed_Call) Run(run func(memberID string)) *MockLinkStory_VoiceAllowed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockLinkStory_VoiceAllowed_Call) Return(b bool) *MockLinkStory_VoiceAllowed_Call {
+	_c.Call.Return(b)
+	return _c
+}
+
+func (_c *MockLinkStory_VoiceAllowed_Call) RunAndReturn(run func(memberID string) bool) *MockLinkStory_VoiceAllowed_Call {
+	_c.Call.Return(run)
+	return _c
+}

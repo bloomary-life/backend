@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -64,6 +65,20 @@ type IncomingMessage struct {
 	ReplyToBot bool
 }
 
+// MemberSet is a set of member IDs from configuration (e.g. who may send voice notes).
+type MemberSet map[string]bool
+
+// NewMemberSet builds a set from IDs, ignoring blanks.
+func NewMemberSet(ids []string) MemberSet {
+	set := MemberSet{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			set[id] = true
+		}
+	}
+	return set
+}
+
 type Callback struct {
 	ID        string
 	Data      string
@@ -91,12 +106,16 @@ type Button struct {
 	CopyText     string
 }
 
-// OutgoingMessage has inline Buttons or a persistent reply Keyboard (button texts), not both.
+// OutgoingMessage has inline Buttons, a persistent reply Keyboard (button texts) or RemoveKeyboard, not more than one.
 type OutgoingMessage struct {
 	Text     string
 	Buttons  [][]Button
 	Keyboard [][]string
 	ChatID   int64
+	// RemoveKeyboard takes the persistent keyboard away (after unlinking).
+	RemoveKeyboard bool
+	// Silent delivers the message without a notification sound.
+	Silent bool
 }
 
 type Photo struct {

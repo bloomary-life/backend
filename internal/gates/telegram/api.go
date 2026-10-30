@@ -79,8 +79,13 @@ type apiResponse struct {
 func (a *API) SendMessage(ctx context.Context, message telegramDomain.OutgoingMessage) (int64, error) {
 	payload := map[string]any{"chat_id": message.ChatID, "text": message.Text,
 		"link_preview_options": map[string]bool{"is_disabled": true}}
+	if message.Silent {
+		payload["disable_notification"] = true
+	}
 	if len(message.Buttons) > 0 {
 		payload["reply_markup"] = markup(message.Buttons)
+	} else if message.RemoveKeyboard {
+		payload["reply_markup"] = map[string]bool{"remove_keyboard": true}
 	} else if len(message.Keyboard) > 0 {
 		keyboard := replyKeyboard{ResizeKeyboard: true, IsPersistent: true}
 		for _, row := range message.Keyboard {

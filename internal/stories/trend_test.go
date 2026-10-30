@@ -28,7 +28,7 @@ func TestSendTrendShowsOpenSourceAndKeepsTheMessageForReplies(t *testing.T) {
 	reviews.EXPECT().CreateSuggestion(mock.Anything, mock.MatchedBy(func(s reviewDomain.Suggestion) bool { return s.Kind == reviewDomain.KindTrend })).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", telegramDomain.OutgoingMessage{
-		Text:    "Trend\n" + trendSummary + "\n\nReply with a voice note to turn this into a post.",
+		Text:    "Story for today\n" + trendSummary + trendFooter,
 		Buttons: [][]telegramDomain.Button{{{Text: "Open source", URL: "https://www.anthropic.com/news/x"}}},
 	}, (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 70}, nil)
 	reviews.EXPECT().SetSuggestionMessage(mock.Anything, "member-1", mock.Anything, int64(70)).Return(nil)
@@ -67,13 +67,13 @@ func TestVoiceReplyToTrendBecomesInsightWithTheStory(t *testing.T) {
 		return in.Text == "Juniors should learn to review AI code." && in.Source == insightDomain.SourceVoice &&
 			in.Trend != nil && *in.Trend == insightDomain.Trend{SourceURL: "https://www.anthropic.com/news/x", Summary: trendSummary}
 	})).Return(nil)
-	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: trendSaved, Keyboard: botKeyboard}).Return(71, nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: "Saved your take: “Juniors should learn to review AI code.”\n\n" + trendSavedTail, Keyboard: botKeyboard}).Return(71, nil)
 	edits, err := NewEditReplies(reviews, scheduleMocks.NewMockRepository(t), draftMocks.NewMockRepository(t))
 	require.NoError(t, err)
 	trends, err := NewTrendReplies(reviews, f.insights)
 	require.NoError(t, err)
 	story, err := NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life",
-		TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{edits, trends}})
+		TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{edits, trends}, VoiceMembers: telegramDomain.MemberSet{"member-1": true}})
 	require.NoError(t, err)
 	update := voiceMessage(9)
 	update.Message.ReplyToMessageID, update.Message.ReplyToBot = 70, true
@@ -85,7 +85,8 @@ func TestFirstCommentIsSentWithCopyAndOpenPostWhenThePostPublishes(t *testing.T)
 	// Verifies: BE-024
 	comment := "Book a 45-minute call: https://lumen.observer/call/katerina"
 	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().FirstComment(mock.Anything, "member-1", "draft-1").Return(comment, nil)
+	reviews.EXPECT().FirstComment(mock.Anything, "member-1", "draft-1").Return(comment, "job-1", nil)
+	reviews.EXPECT().DeleteFirstComment(mock.Anything, "member-1", "draft-1").Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
 		return strings.HasPrefix(m.Text, "First comment for your post") && strings.HasSuffix(m.Text, comment) && len(m.Buttons) == 1 &&
@@ -95,13 +96,13 @@ func TestFirstCommentIsSentWithCopyAndOpenPostWhenThePostPublishes(t *testing.T)
 	comments, err := NewFirstComments(reviews, notifier)
 	require.NoError(t, err)
 
-	comments.PostPublished(context.Background(), scheduledDomain.Post{MemberID: "member-1", DraftID: "draft-1", LinkedInPostID: "urn:li:share:7", Status: scheduledDomain.Published})
+	comments.PostPublished(context.Background(), scheduledDomain.Post{ID: "job-1", MemberID: "member-1", DraftID: "draft-1", LinkedInPostID: "urn:li:share:7", Status: scheduledDomain.Published})
 }
 
 func TestNoFirstCommentSendsNothing(t *testing.T) {
 	// Verifies: BE-024
 	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().FirstComment(mock.Anything, "member-1", "draft-1").Return("", reviewDomain.ErrNotFound)
+	reviews.EXPECT().FirstComment(mock.Anything, "member-1", "draft-1").Return("", "", reviewDomain.ErrNotFound)
 	comments, err := NewFirstComments(reviews, telegramMocks.NewMockNotifier(t))
 	require.NoError(t, err)
 

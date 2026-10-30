@@ -125,3 +125,19 @@ func TestReserveVoiceKeepsAttemptsFor24HoursOnly(t *testing.T) {
 	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM member_voice_attempts`).Scan(&rows))
 	require.Equal(t, 1, rows, "attempts older than 24 hours are deleted")
 }
+
+func TestPruneVoiceAttemptsRemovesOldRowsWithoutNewVoiceNotes(t *testing.T) {
+	// Verifies: BE-021
+	repo := newRepo(t)
+	ctx := context.Background()
+	old := time.Now().UTC().Add(-30 * time.Hour)
+	ok, err := repo.ReserveVoice(ctx, "member-1", 5, old.Add(-24*time.Hour), old)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.NoError(t, repo.PruneVoiceAttempts(ctx, time.Now().UTC().Add(-24*time.Hour)))
+
+	var rows int
+	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM member_voice_attempts`).Scan(&rows))
+	require.Zero(t, rows)
+}

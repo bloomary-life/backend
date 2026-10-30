@@ -11,21 +11,25 @@ import (
 	"time"
 
 	telegramDomain "bloomary-api/internal/domain/telegram"
+	"bloomary-api/internal/platform/logger"
 )
 
 type telegramLink struct {
-	links       telegramDomain.LinkRepository
-	botUsername string
+	links        telegramDomain.LinkRepository
+	bot          telegramDomain.Gate
+	voiceMembers telegramDomain.MemberSet
+	botUsername  string
 }
 
 var _ telegramDomain.LinkStory = (*telegramLink)(nil)
 
-func NewTelegramLink(links telegramDomain.LinkRepository, botUsername string) (telegramDomain.LinkStory, error) {
+// NewTelegramLink builds the web side of linking; bot may be nil (no goodbye message on unlink).
+func NewTelegramLink(links telegramDomain.LinkRepository, botUsername string, bot telegramDomain.Gate, voiceMembers telegramDomain.MemberSet) (telegramDomain.LinkStory, error) {
 	botUsername = strings.TrimPrefix(strings.TrimSpace(botUsername), "@")
 	if links == nil || botUsername == "" {
 		return nil, fmt.Errorf("telegram link story: link repository and bot username are required")
 	}
-	return &telegramLink{links: links, botUsername: botUsername}, nil
+	return &telegramLink{links: links, bot: bot, voiceMembers: voiceMembers, botUsername: botUsername}, nil
 }
 
 // Start opens a link attempt for the signed-in member: the page shows Number, the bot asks for it.
@@ -52,8 +56,22 @@ func (s *telegramLink) Status(ctx context.Context, memberID string) (telegramDom
 	return s.links.ByMemberID(ctx, memberID)
 }
 
+// Unlink removes the link and tells the chat, taking the bot keyboard away.
 func (s *telegramLink) Unlink(ctx context.Context, memberID string) error {
-	return s.links.DeleteByMemberID(ctx, memberID)
+	link, lookupErr := s.links.ByMemberID(ctx, memberID)
+	if err := s.links.DeleteByMemberID(ctx, memberID); err != nil {
+		return err
+	}
+	if lookupErr == nil && s.bot != nil {
+		if _, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: link.ChatID, Text: botUnlinked, RemoveKeyboard: true}); err != nil {
+			logger.FromContext(ctx).WithError(err).Info("telegram_unlink_message_failed")
+		}
+	}
+	return nil
+}
+
+func (s *telegramLink) VoiceAllowed(memberID string) bool {
+	return s.voiceMembers[memberID]
 }
 
 // telegramNotifier sends a member a message (and an optional photo before it) through their link.
@@ -84,6 +102,14 @@ func (s *telegramNotifier) Notify(ctx context.Context, memberID string, message 
 	message.ChatID = link.ChatID
 	sent.MessageID, err = s.bot.SendMessage(ctx, message)
 	return sent, err
+}
+
+func (s *telegramNotifier) Replace(ctx context.Context, memberID string, messageID int64, text string) error {
+	link, err := s.links.ByMemberID(ctx, memberID)
+	if err != nil {
+		return err
+	}
+	return s.bot.EditMessageText(ctx, link.ChatID, messageID, text)
 }
 
 func randomToken(size int) (string, error) {

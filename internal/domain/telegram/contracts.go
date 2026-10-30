@@ -39,6 +39,8 @@ type LinkStory interface {
 	Start(ctx context.Context, memberID string) (LinkStart, error)
 	Status(ctx context.Context, memberID string) (Link, error)
 	Unlink(ctx context.Context, memberID string) error
+	// VoiceAllowed reports whether the member may send voice notes to the bot.
+	VoiceAllowed(memberID string) bool
 }
 
 // BotStory handles one webhook update from Telegram.
@@ -70,4 +72,6 @@ type CommandHandler interface {
 // Notifier sends a member a Telegram message through their link.
 type Notifier interface {
 	Notify(ctx context.Context, memberID string, message OutgoingMessage, photo *Photo) (Delivery, error)
+	// Replace sets the text of an earlier message to the member and removes its buttons.
+	Replace(ctx context.Context, memberID string, messageID int64, text string) error
 }

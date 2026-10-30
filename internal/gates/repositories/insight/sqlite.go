@@ -123,6 +123,15 @@ func (r *SQLiteRepository) CountSince(ctx context.Context, memberID string, sour
 	return count, nil
 }
 
+// PruneVoiceAttempts deletes voice attempts older than before (run hourly, so no row outlives the 24-hour window by much).
+func (r *SQLiteRepository) PruneVoiceAttempts(ctx context.Context, before time.Time) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM member_voice_attempts WHERE created_at<?`, before.UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("prune voice attempts: %w", err)
+	}
+
+	return nil
+}
+
 // ReserveVoice is one INSERT ... SELECT, so parallel updates cannot pass the limit together.
 func (r *SQLiteRepository) ReserveVoice(ctx context.Context, memberID string, seconds int, since, at time.Time) (bool, error) {
 	from := since.UTC().Format(time.RFC3339Nano)

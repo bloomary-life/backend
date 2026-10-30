@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	trendSaved = "Saved your take on this story. When your AI app turns it into a post, the preview comes here."
-	trendLimit = "That's 60 ideas in 24 hours, the limit. Send more in a few hours."
+	trendSavedTail = "When your AI app turns it into a post, the preview comes here. Each reply becomes its own post: to add to this one, wait for its preview and reply there."
+	trendSaved     = "Saved your take on this story. " + trendSavedTail
+	trendLimit     = "That's 60 ideas in 24 hours, the limit. Send more in a few hours."
 )
 
 // TrendReplies turns a member's reply to a trend message into an insight that carries the story (source and summary).
@@ -69,6 +70,9 @@ func (s *TrendReplies) Save(ctx context.Context, link telegramDomain.Link, claim
 		CreatedAt: time.Now().UTC(), Trend: &insightDomain.Trend{SourceURL: suggestion.TargetURL, Summary: suggestion.Text}})
 	if err != nil {
 		return "", err
+	}
+	if source == string(insightDomain.SourceVoice) {
+		return "Saved your take: “" + snippet(text) + "”\n\n" + trendSavedTail, nil
 	}
 	return trendSaved, nil
 }

@@ -39,11 +39,12 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
 	var created reviewDomain.Notice
 	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Run(func(_ context.Context, n reviewDomain.Notice) { created = n }).Return(nil)
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	objects := draftMocks.NewMockObjectStore(t)
 	objects.EXPECT().Read(mock.Anything, "key-1").Return([]byte("png"), nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.Contains(m.Text, "Goes out: Tue 3 Nov, 11:00 (Cyprus)") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
+		return strings.Contains(m.Text, "Goes out: Tue 3 Nov, 11:00 (UTC+2)") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
 			strings.Contains(m.Text, "Reply to this message (voice or text) to change it.") &&
 			strings.HasSuffix(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 2 &&
 			m.Buttons[0][0].CallbackData == "pv:e" && m.Buttons[0][1].CallbackData == "sk:"+created.ID &&
@@ -70,6 +71,7 @@ func TestNotifyDraftSendsPreviewWithDiscardAndNoTime(t *testing.T) {
 	reviews := reviewMocks.NewMockRepository(t)
 	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
 	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Return(nil)
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
 		return strings.HasPrefix(m.Text, draftHeader+"\n\n") && !strings.Contains(m.Text, "Goes out") &&
@@ -79,7 +81,7 @@ func TestNotifyDraftSendsPreviewWithDiscardAndNoTime(t *testing.T) {
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
-	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "")
+	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "", "")
 
 	require.NoError(t, err)
 }
@@ -91,14 +93,14 @@ func TestDiscardMarksDraftPreviewSkipped(t *testing.T) {
 	reviews.EXPECT().NoticeByID(mock.Anything, "member-1", "n-1").Return(notice, nil)
 	reviews.EXPECT().SkipNotice(mock.Anything, "member-1", "n-1", mock.Anything).Return(notice, nil)
 	bot := telegramMocks.NewMockGate(t)
-	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(8), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Discarded:") })).Return(nil)
+	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(8), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Discarded.") })).Return(nil)
 	callbacks, err := NewSkipCallbacks(reviews, scheduleMocks.NewMockRepository(t), bot)
 	require.NoError(t, err)
 
 	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1", ChatID: 100}, telegramDomain.Callback{Data: "sk:n-1", ChatID: 100, MessageID: 8})
 
 	require.NoError(t, err)
-	require.Equal(t, "Discarded: the draft stays in Bloomary.", answer)
+	require.Equal(t, "Discarded. No more edits from here; the draft is still in Bloomary → Drafts.", answer)
 }
 
 func TestSkipIsTooLateWhenTheWorkerClaimedThePost(t *testing.T) {
@@ -143,6 +145,7 @@ func TestSkipCancelsScheduledPost(t *testing.T) {
 	jobs := scheduleMocks.NewMockRepository(t)
 	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", Status: scheduledDomain.Pending}, nil)
 	jobs.EXPECT().Cancel(mock.Anything, "member-1", "draft-1").Return(true, nil)
+	reviews.EXPECT().DeleteFirstComment(mock.Anything, "member-1", "draft-1").Return(nil)
 	bot := telegramMocks.NewMockGate(t)
 	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(8), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Skipped:") })).Return(nil)
 	callbacks, err := NewSkipCallbacks(reviews, jobs, bot)

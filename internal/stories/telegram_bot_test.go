@@ -35,7 +35,8 @@ func newBotFixture(t *testing.T) botFixture {
 		transcriber: telegramMocks.NewMockTranscriber(t), insights: insightMocks.NewMockRepository(t),
 		accounts: accountMocks.NewMockRepository(t),
 	}
-	story, err := NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life", TelegramBotHandlers{})
+	story, err := NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life", TelegramBotHandlers{
+		VoiceMembers: telegramDomain.MemberSet{"member-1": true}, NumbersMembers: telegramDomain.MemberSet{"member-1": true}})
 	require.NoError(t, err)
 	f.story = story
 	return f
@@ -71,7 +72,8 @@ func TestTelegramLinkAsksForTheNumberShownInBloomaryAndLinksOnMatch(t *testing.T
 	})).Return(nil)
 	f.gate.EXPECT().EditMessageText(mock.Anything, int64(100), int64(9), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Linked to Bloomary.") })).Return(nil)
 	f.gate.EXPECT().AnswerCallback(mock.Anything, "cb-1", "", false).Return(nil)
-	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botHelp, Keyboard: botKeyboard}).Return(10, nil)
+	f.links.EXPECT().ByTelegramUser(mock.Anything, int64(100)).Return(telegramDomain.Link{MemberID: "member-1", ChatID: 100, TelegramUserID: 100}, nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botHelpVoice, Keyboard: botKeyboard}).Return(10, nil)
 
 	require.NoError(t, f.story.HandleUpdate(context.Background(), telegramDomain.Update{Callback: &telegramDomain.Callback{
 		ID: "cb-1", Data: "tl:42:" + testNonce, ChatID: 100, MessageID: 9, From: telegramDomain.Sender{ID: 100, Username: "kat"}}}))
@@ -209,7 +211,7 @@ func TestTelegramLinkStartReturnsDeepLinkAndNumber(t *testing.T) {
 	links := telegramMocks.NewMockLinkRepository(t)
 	var stored telegramDomain.LinkAttempt
 	links.EXPECT().StartAttempt(mock.Anything, mock.Anything).Run(func(_ context.Context, attempt telegramDomain.LinkAttempt) { stored = attempt }).Return(nil)
-	story, err := NewTelegramLink(links, "@BloomaryBot")
+	story, err := NewTelegramLink(links, "@BloomaryBot", nil, nil)
 	require.NoError(t, err)
 
 	start, err := story.Start(context.Background(), "member-1")

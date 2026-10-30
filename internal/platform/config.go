@@ -81,6 +81,10 @@ type Config struct {
 	UserBotWebhookSecret string `env:"BLOOMARY_USER_BOT_WEBHOOK_SECRET"`
 	UserBotUsername      string `env:"BLOOMARY_USER_BOT_USERNAME" envDefault:"bloomary_app"`
 	DeepgramAPIKey       string `env:"DEEPGRAM_API_KEY"`
+	// VoiceMemberIDs may send voice notes to the bot; empty = nobody, until the Deepgram DPA is accepted.
+	VoiceMemberIDs []string `env:"BLOOMARY_VOICE_MEMBER_IDS" envSeparator:","`
+	// WeeklyNumbersMemberIDs get the weekly-numbers reply to "numbers:" messages (members with a weekly report).
+	WeeklyNumbersMemberIDs []string `env:"BLOOMARY_WEEKLY_NUMBERS_MEMBER_IDS" envSeparator:","`
 }
 
 type PositiveFloat float64

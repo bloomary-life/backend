@@ -47,6 +47,8 @@ type NoticeStatus string
 const (
 	NoticeSent    NoticeStatus = "sent"
 	NoticeSkipped NoticeStatus = "skipped"
+	// NoticeReplaced is an older preview of a draft after a newer one was sent; its buttons are gone.
+	NoticeReplaced NoticeStatus = "replaced"
 )
 
 // Notice is one Telegram preview of an MCP-scheduled post; ProposedText is the draft text the AI app wrote.
@@ -106,6 +108,8 @@ type Suggestion struct {
 }
 
 type SuggestionInput struct {
+	// Silent sends the Telegram message without a notification sound (e.g. trends after the first).
+	Silent    bool
 	MemberID  string
 	Kind      string
 	TargetURL string

@@ -60,6 +60,9 @@ type Config struct {
 	MCPIssuerURL           string
 	TelegramWebhookSecret  string
 	TelegramBotUsername    string
+	// VoiceMemberIDs may send voice notes to the bot; WeeklyNumbersMemberIDs get the weekly-numbers reply.
+	VoiceMemberIDs         []string
+	WeeklyNumbersMemberIDs []string
 }
 
 func DefaultConfig() Config {

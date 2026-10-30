@@ -498,8 +498,71 @@ func (_c *MockRepository_DeleteByMemberID_Call) RunAndReturn(run func(ctx contex
 	return _c
 }
 
+// DeleteFirstComment provides a mock function for the type MockRepository
+func (_mock *MockRepository) DeleteFirstComment(ctx context.Context, memberID string, draftID string) error {
+	ret := _mock.Called(ctx, memberID, draftID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteFirstComment")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(ctx, memberID, draftID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockRepository_DeleteFirstComment_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteFirstComment'
+type MockRepository_DeleteFirstComment_Call struct {
+	*mock.Call
+}
+
+// DeleteFirstComment is a helper method to define mock.On call
+//   - ctx context.Context
+//   - memberID string
+//   - draftID string
+func (_e *MockRepository_Expecter) DeleteFirstComment(ctx any, memberID any, draftID any) *MockRepository_DeleteFirstComment_Call {
+	return &MockRepository_DeleteFirstComment_Call{Call: _e.mock.On("DeleteFirstComment", ctx, memberID, draftID)}
+}
+
+func (_c *MockRepository_DeleteFirstComment_Call) Run(run func(ctx context.Context, memberID string, draftID string)) *MockRepository_DeleteFirstComment_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_DeleteFirstComment_Call) Return(err error) *MockRepository_DeleteFirstComment_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockRepository_DeleteFirstComment_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string) error) *MockRepository_DeleteFirstComment_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FirstComment provides a mock function for the type MockRepository
-func (_mock *MockRepository) FirstComment(ctx context.Context, memberID string, draftID string) (string, error) {
+func (_mock *MockRepository) FirstComment(ctx context.Context, memberID string, draftID string) (string, string, error) {
 	ret := _mock.Called(ctx, memberID, draftID)
 
 	if len(ret) == 0 {
@@ -507,8 +570,9 @@ func (_mock *MockRepository) FirstComment(ctx context.Context, memberID string, 
 	}
 
 	var r0 string
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (string, error)); ok {
+	var r1 string
+	var r2 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (string, string, error)); ok {
 		return returnFunc(ctx, memberID, draftID)
 	}
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) string); ok {
@@ -516,12 +580,17 @@ func (_mock *MockRepository) FirstComment(ctx context.Context, memberID string, 
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) string); ok {
 		r1 = returnFunc(ctx, memberID, draftID)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Get(1).(string)
 	}
-	return r0, r1
+	if returnFunc, ok := ret.Get(2).(func(context.Context, string, string) error); ok {
+		r2 = returnFunc(ctx, memberID, draftID)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
 }
 
 // MockRepository_FirstComment_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FirstComment'
@@ -560,12 +629,12 @@ func (_c *MockRepository_FirstComment_Call) Run(run func(ctx context.Context, me
 	return _c
 }
 
-func (_c *MockRepository_FirstComment_Call) Return(s string, err error) *MockRepository_FirstComment_Call {
-	_c.Call.Return(s, err)
+func (_c *MockRepository_FirstComment_Call) Return(text string, scheduleID string, err error) *MockRepository_FirstComment_Call {
+	_c.Call.Return(text, scheduleID, err)
 	return _c
 }
 
-func (_c *MockRepository_FirstComment_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string) (string, error)) *MockRepository_FirstComment_Call {
+func (_c *MockRepository_FirstComment_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string) (string, string, error)) *MockRepository_FirstComment_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1167,17 +1236,80 @@ func (_c *MockRepository_RateSuggestion_Call) RunAndReturn(run func(ctx context.
 	return _c
 }
 
+// ReplaceNotice provides a mock function for the type MockRepository
+func (_mock *MockRepository) ReplaceNotice(ctx context.Context, memberID string, id string) error {
+	ret := _mock.Called(ctx, memberID, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplaceNotice")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = returnFunc(ctx, memberID, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockRepository_ReplaceNotice_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplaceNotice'
+type MockRepository_ReplaceNotice_Call struct {
+	*mock.Call
+}
+
+// ReplaceNotice is a helper method to define mock.On call
+//   - ctx context.Context
+//   - memberID string
+//   - id string
+func (_e *MockRepository_Expecter) ReplaceNotice(ctx any, memberID any, id any) *MockRepository_ReplaceNotice_Call {
+	return &MockRepository_ReplaceNotice_Call{Call: _e.mock.On("ReplaceNotice", ctx, memberID, id)}
+}
+
+func (_c *MockRepository_ReplaceNotice_Call) Run(run func(ctx context.Context, memberID string, id string)) *MockRepository_ReplaceNotice_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_ReplaceNotice_Call) Return(err error) *MockRepository_ReplaceNotice_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockRepository_ReplaceNotice_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string) error) *MockRepository_ReplaceNotice_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SaveFirstComment provides a mock function for the type MockRepository
-func (_mock *MockRepository) SaveFirstComment(ctx context.Context, memberID string, draftID string, text string, at time.Time) error {
-	ret := _mock.Called(ctx, memberID, draftID, text, at)
+func (_mock *MockRepository) SaveFirstComment(ctx context.Context, memberID string, draftID string, scheduleID string, text string, at time.Time) error {
+	ret := _mock.Called(ctx, memberID, draftID, scheduleID, text, at)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SaveFirstComment")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, time.Time) error); ok {
-		r0 = returnFunc(ctx, memberID, draftID, text, at)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, string, time.Time) error); ok {
+		r0 = returnFunc(ctx, memberID, draftID, scheduleID, text, at)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1193,13 +1325,14 @@ type MockRepository_SaveFirstComment_Call struct {
 //   - ctx context.Context
 //   - memberID string
 //   - draftID string
+//   - scheduleID string
 //   - text string
 //   - at time.Time
-func (_e *MockRepository_Expecter) SaveFirstComment(ctx any, memberID any, draftID any, text any, at any) *MockRepository_SaveFirstComment_Call {
-	return &MockRepository_SaveFirstComment_Call{Call: _e.mock.On("SaveFirstComment", ctx, memberID, draftID, text, at)}
+func (_e *MockRepository_Expecter) SaveFirstComment(ctx any, memberID any, draftID any, scheduleID any, text any, at any) *MockRepository_SaveFirstComment_Call {
+	return &MockRepository_SaveFirstComment_Call{Call: _e.mock.On("SaveFirstComment", ctx, memberID, draftID, scheduleID, text, at)}
 }
 
-func (_c *MockRepository_SaveFirstComment_Call) Run(run func(ctx context.Context, memberID string, draftID string, text string, at time.Time)) *MockRepository_SaveFirstComment_Call {
+func (_c *MockRepository_SaveFirstComment_Call) Run(run func(ctx context.Context, memberID string, draftID string, scheduleID string, text string, at time.Time)) *MockRepository_SaveFirstComment_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1217,9 +1350,13 @@ func (_c *MockRepository_SaveFirstComment_Call) Run(run func(ctx context.Context
 		if args[3] != nil {
 			arg3 = args[3].(string)
 		}
-		var arg4 time.Time
+		var arg4 string
 		if args[4] != nil {
-			arg4 = args[4].(time.Time)
+			arg4 = args[4].(string)
+		}
+		var arg5 time.Time
+		if args[5] != nil {
+			arg5 = args[5].(time.Time)
 		}
 		run(
 			arg0,
@@ -1227,6 +1364,7 @@ func (_c *MockRepository_SaveFirstComment_Call) Run(run func(ctx context.Context
 			arg2,
 			arg3,
 			arg4,
+			arg5,
 		)
 	})
 	return _c
@@ -1237,7 +1375,7 @@ func (_c *MockRepository_SaveFirstComment_Call) Return(err error) *MockRepositor
 	return _c
 }
 
-func (_c *MockRepository_SaveFirstComment_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string, text string, at time.Time) error) *MockRepository_SaveFirstComment_Call {
+func (_c *MockRepository_SaveFirstComment_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string, scheduleID string, text string, at time.Time) error) *MockRepository_SaveFirstComment_Call {
 	_c.Call.Return(run)
 	return _c
 }

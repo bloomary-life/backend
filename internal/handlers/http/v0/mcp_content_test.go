@@ -172,6 +172,7 @@ func TestMCPNotifyScheduledSendsTelegramPreview(t *testing.T) {
 	reviews := reviewMocks.NewMockRepository(t)
 	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
 	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Return(nil)
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(1), int64(0)).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.Anything, (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 1}, nil)
@@ -268,6 +269,7 @@ func TestMCPNotifyDraftSendsUnscheduledPreviewWithoutSkip(t *testing.T) {
 	reviews := reviewMocks.NewMockRepository(t)
 	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
 	reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.ScheduleID == "" && n.DraftID == "draft-1" })).Return(nil)
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(4), int64(0)).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
@@ -367,8 +369,13 @@ func TestMCPListInsightsIncludesTrendContext(t *testing.T) {
 
 type fakeFirstComments struct{ saved map[string]string }
 
-func (f *fakeFirstComments) Save(_ context.Context, memberID, draftID, text string) error {
-	f.saved[memberID+"/"+draftID] = text
+func (f *fakeFirstComments) Save(_ context.Context, memberID, draftID, scheduleID, text string) error {
+	f.saved[memberID+"/"+draftID] = scheduleID + ":" + text
+	return nil
+}
+
+func (f *fakeFirstComments) Clear(_ context.Context, memberID, draftID string) error {
+	delete(f.saved, memberID+"/"+draftID)
 	return nil
 }
 
@@ -383,5 +390,10 @@ func TestMCPScheduleDraftStoresFirstComment(t *testing.T) {
 		"first_comment": "Book a call: https://lumen.observer/call/katerina"})
 
 	require.False(t, result.Result.IsError, result.Result.Content)
-	require.Equal(t, "Book a call: https://lumen.observer/call/katerina", comments.saved["member-1/draft-1"])
+	require.Equal(t, "job-1:Book a call: https://lumen.observer/call/katerina", comments.saved["member-1/draft-1"])
+
+	comments.saved["member-1/draft-1"] = "job-1:old"
+	result = callMCPTool(t, svc, []string{"drafts:write"}, "schedule_draft", map[string]any{"draft_id": "draft-1", "publish_at": "2026-11-03T10:00:00+02:00"})
+	require.False(t, result.Result.IsError, result.Result.Content)
+	require.NotContains(t, comments.saved, "member-1/draft-1", "scheduling again without first_comment clears the old one")
 }

@@ -111,7 +111,7 @@ func TestTelegramWebhookStoresVoiceReplyToPreviewAsEditRequest(t *testing.T) {
 	replies, err := stories.NewEditReplies(reviews, jobs, draftMocks.NewMockRepository(t))
 	require.NoError(t, err)
 	bot, err := stories.NewTelegramBot(links, gate, transcriber, insights, accountMocks.NewMockRepository(t), "https://platform.bloomary.life",
-		stories.TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{replies}})
+		stories.TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{replies}, VoiceMembers: telegramDomain.MemberSet{"member-1": true}})
 	require.NoError(t, err)
 	svc := &service{telegramBotStory: bot, config: Config{TelegramWebhookSecret: "webhook-secret"}}
 	request := httptest.NewRequest(http.MethodPost, "/api/telegram/webhook", strings.NewReader(
@@ -133,7 +133,7 @@ func TestTelegramWebhookStoresVoiceReplyToPreviewAsEditRequest(t *testing.T) {
 	}
 	select {
 	case text := <-replied:
-		require.Equal(t, "Got it — I'll rewrite the post and send you the new preview.", text)
+		require.Equal(t, "Got it: “Make it shorter and drop the last line”\n\nWhen your AI app rewrites the post, the new preview comes here.", text)
 	case <-time.After(2 * time.Second):
 		t.Fatal("no reply")
 	}
@@ -192,4 +192,55 @@ func TestTelegramUpdateQueueRefusesWhenFull(t *testing.T) {
 	queue := newTelegramUpdateQueue(&recordingBot{done: make(chan struct{})}, 1, 0)
 
 	require.False(t, queue.enqueue(context.Background(), telegramDomain.Update{Message: &telegramDomain.IncomingMessage{ChatID: 1}}))
+}
+
+func TestTelegramWebhookAnswers503WhenTheQueueIsClosed(t *testing.T) {
+	// Verifies: BE-022
+	svc := &service{telegramBotStory: telegramMocks.NewMockBotStory(t), config: Config{TelegramWebhookSecret: "webhook-secret"}}
+	svc.DrainTelegram(context.Background())
+	request := httptest.NewRequest(http.MethodPost, "/api/telegram/webhook", strings.NewReader(
+		`{"update_id":3,"message":{"message_id":5,"from":{"id":77,"is_bot":false},"chat":{"id":77,"type":"private"},"text":"idea"}}`))
+	log, err := logger.New(logger.Output(io.Discard))
+	require.NoError(t, err)
+	request = request.WithContext(log.ToContext(request.Context()))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook-secret")
+	response := httptest.NewRecorder()
+
+	svc.TelegramWebhook(response, request)
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code, "Telegram resends after a non-2xx answer")
+}
+
+func TestTelegramUpdateQueueDrainsBeforeClosing(t *testing.T) {
+	// Verifies: BE-022
+	bot := &recordingBot{done: make(chan struct{})}
+	queue := newTelegramUpdateQueue(bot, 1, 10)
+	for _, text := range []string{"slow", "a", "b"} {
+		require.True(t, queue.enqueue(context.Background(), telegramDomain.Update{Message: &telegramDomain.IncomingMessage{ChatID: 1, Text: text}}))
+	}
+
+	queue.drainAndClose(context.Background())
+
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	require.Equal(t, []string{"slow", "a", "b"}, bot.handled)
+	require.False(t, queue.enqueue(context.Background(), telegramDomain.Update{Message: &telegramDomain.IncomingMessage{ChatID: 1}}))
+}
+
+func TestTelegramLinkStatusSaysWhetherVoiceIsAllowed(t *testing.T) {
+	// Verifies: BE-021
+	linkedIn := linkedinMocks.NewMockGate(t)
+	linkedIn.On("UserInfo", mock.Anything, "access-token").Return(linkedinDomain.Profile{MemberID: "member-1"}, nil)
+	links := telegramMocks.NewMockLinkStory(t)
+	links.EXPECT().Status(mock.Anything, "member-1").Return(telegramDomain.Link{}, telegramDomain.ErrNotLinked)
+	links.EXPECT().VoiceAllowed("member-1").Return(false)
+	svc := &service{linkedIn: linkedIn, telegramLinkStory: links}
+	request := httptest.NewRequest(http.MethodGet, "/api/telegram/link?memberId=member-1", nil)
+	request.Header.Set("Authorization", "Bearer access-token")
+	response := httptest.NewRecorder()
+
+	svc.TelegramLink(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.JSONEq(t, `{"linked":false,"voice":false}`, response.Body.String())
 }

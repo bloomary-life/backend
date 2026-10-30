@@ -66,6 +66,12 @@ type mcpNotifyScheduledInput struct {
 	Note    string `json:"note,omitempty" jsonschema:"Plain-text note shown above the preview (max 1000 characters), e.g. sources"`
 }
 
+type mcpNotifyDraftInput struct {
+	DraftID      string `json:"draft_id" jsonschema:"Unscheduled, unpublished draft"`
+	Note         string `json:"note,omitempty" jsonschema:"Plain-text note shown above the preview (max 1000 characters), e.g. sources"`
+	FirstComment string `json:"first_comment,omitempty" jsonschema:"Optional text the member pastes as the first comment after publishing (links allowed: sources, booking page, job board; max 1000 characters, a Copy button up to 256). Shown after the post, not stored."`
+}
+
 type mcpNotice struct {
 	NoticeID   string `json:"noticeId"`
 	DraftID    string `json:"draftId"`
@@ -78,6 +84,7 @@ type mcpSendSuggestionInput struct {
 	TargetURL string `json:"target_url" jsonschema:"comment: https URL of the LinkedIn post (linkedin.com); trend: https URL of the story's source"`
 	Text      string `json:"text" jsonschema:"comment: the comment, up to 256 characters gets a Copy button; trend: a two-line summary, up to 600 characters"`
 	Context   string `json:"context,omitempty" jsonschema:"One line on why this post and comment"`
+	Silent    bool   `json:"silent,omitempty" jsonschema:"Deliver without a notification sound (e.g. every trend after the first of the day)"`
 }
 
 type mcpSuggestionSent struct {
@@ -226,8 +233,12 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 				return nil, mcpSchedule{}, err
 			}
 			if firstComment != "" {
-				if err := s.firstCommentStory.Save(ctx, memberID, draftID, firstComment); err != nil {
+				if err := s.firstCommentStory.Save(ctx, memberID, draftID, post.ID, firstComment); err != nil {
 					return nil, mcpSchedule{}, fmt.Errorf("the post is scheduled, but its first comment was not saved: %w", err)
+				}
+			} else if s.firstCommentStory != nil {
+				if err := s.firstCommentStory.Clear(ctx, memberID, draftID); err != nil {
+					return nil, mcpSchedule{}, fmt.Errorf("the post is scheduled, but its old first comment was not removed: %w", err)
 				}
 			}
 			return nil, toMCPSchedule(post), nil
@@ -276,8 +287,8 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			}
 			return nil, toMCPEditRequest(edit), nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("notify_draft", "Send the member a Telegram preview of an unscheduled draft (text, image, \"Draft — not scheduled\") with Edit by voice and an Edit link; no Skip. Replies to it become edit requests.", "drafts:write"),
-		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpNotifyScheduledInput) (*mcp.CallToolResult, mcpNotice, error) {
+	mcp.AddTool(server, mcpOAuthTool("notify_draft", "Send the member a Telegram preview of an unscheduled draft (text, image, optional first comment with Copy) with How to edit, Discard and an Edit link. Replies to it become edit requests.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpNotifyDraftInput) (*mcp.CallToolResult, mcpNotice, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {
 				return nil, mcpNotice{}, err
@@ -285,7 +296,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			if s.notifyScheduledStory == nil {
 				return nil, mcpNotice{}, errors.New("the Bloomary Telegram bot is not configured")
 			}
-			notice, err := s.notifyScheduledStory.NotifyDraft(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note)
+			notice, err := s.notifyScheduledStory.NotifyDraft(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note, input.FirstComment)
 			if err != nil {
 				return nil, mcpNotice{}, err
 			}
@@ -300,7 +311,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			if s.sendSuggestionStory == nil {
 				return nil, mcpSuggestionSent{}, errors.New("the Bloomary Telegram bot is not configured")
 			}
-			suggestion, err := s.sendSuggestionStory.Send(ctx, reviewDomain.SuggestionInput{MemberID: memberID, Kind: strings.TrimSpace(input.Kind),
+			suggestion, err := s.sendSuggestionStory.Send(ctx, reviewDomain.SuggestionInput{MemberID: memberID, Kind: strings.TrimSpace(input.Kind), Silent: input.Silent,
 				TargetURL: input.TargetURL, Text: input.Text, Context: input.Context})
 			if err != nil {
 				return nil, mcpSuggestionSent{}, err

@@ -203,6 +203,7 @@ func main() {
 		appLogger.Fatal(fmt.Errorf("init endpoint limiters: %w", err))
 	}
 	handlerCfg.Notifications = newNotifications(config, newTrackedClient, appLogger)
+	go pruneVoiceAttempts(ctx, store.insightRepo)
 	appStories, err := newApplicationStories(
 		store, draftImageStore, linkedInGate, resendGate, recaptchaGate,
 		appleVerifier, appleVerifier, paddleAPI, quota, flows, userBot, transcriber, handlerCfg,
@@ -216,7 +217,7 @@ func main() {
 			appLogger.WithError(err).Error("telegram_set_commands_failed")
 		}
 	}
-	apiMux, err := newMuxWithLinkedInConfig(
+	apiMux, drainTelegram, err := newMuxWithLinkedInConfig(
 		ctx, draftImageStore, linkedInGate, store.accountRepo, flows, appStories,
 		endpointLimiters, handlerCfg,
 	)
@@ -264,6 +265,7 @@ func main() {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			appLogger.WithError(err).Error("bloomary_api_shutdown_failed")
 		}
+		drainTelegram(shutdownCtx)
 	case err := <-errCh:
 		appLogger.Fatal(fmt.Errorf("bloomary server failed: %w", err))
 	}
@@ -492,6 +494,9 @@ func newApplicationStories(
 		return v0.ApplicationStories{}, err
 	}
 	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo, store.mcpOAuthState, store.scheduledPostRepo}
+	if events, ok := config.ProductEvents.(accountDomain.MemberDataDeleter); ok {
+		memberData = append(memberData, events)
+	}
 	accountDeletion, err := stories.NewAccountDeletionStoryWithMemberData(store.dailyRepo, store.draftRepo, store.accountRepo, memberData, draftImages)
 	if err != nil {
 		return v0.ApplicationStories{}, err
@@ -506,7 +511,8 @@ func newApplicationStories(
 		return v0.ApplicationStories{}, err
 	}
 	if userBot != nil {
-		telegramLink, err = stories.NewTelegramLink(store.telegramLinkRepo, config.TelegramBotUsername)
+		voiceMembers := telegramDomain.NewMemberSet(config.VoiceMemberIDs)
+		telegramLink, err = stories.NewTelegramLink(store.telegramLinkRepo, config.TelegramBotUsername, userBot, voiceMembers)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -552,6 +558,7 @@ func newApplicationStories(
 			return v0.ApplicationStories{}, err
 		}
 		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, stories.TelegramBotHandlers{
+			VoiceMembers: voiceMembers, NumbersMembers: telegramDomain.NewMemberSet(config.WeeklyNumbersMemberIDs),
 			Replies: []telegramDomain.ReplyHandler{editReplies, trendReplies}, Callbacks: []telegramDomain.CallbackHandler{skips, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
 		if err != nil {
 			return v0.ApplicationStories{}, err
@@ -606,6 +613,7 @@ func newUserBotGates(
 	return bot, transcriber, nil
 }
 
+// newMuxWithLinkedInConfig returns the API mux and a drain func that finishes queued Telegram updates on shutdown.
 func newMuxWithLinkedInConfig(
 	ctx context.Context,
 	draftImages draftDomain.ObjectStore,
@@ -615,12 +623,12 @@ func newMuxWithLinkedInConfig(
 	appStories v0.ApplicationStories,
 	limiters [6]limiterDomain.DailyIPLimiter,
 	config v0.Config,
-) (*http.ServeMux, error) {
+) (*http.ServeMux, func(context.Context), error) {
 	service, err := v0.NewService(draftImages, linkedIn, accountRepo, appStories, flows, limiters, config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return service.Mux(ctx), nil
+	return service.Mux(ctx), service.DrainTelegram, nil
 }
 
 func newQuotaAndLimiters(dailyRepo dailyDomain.Repository, dailyLimit int) (dailyDomain.QuotaConsumer, error) {
@@ -740,5 +748,30 @@ func handlerConfig(config platform.Config, productCounters ...metrics.ProductCou
 		ProductCounters:        counters,
 		TelegramWebhookSecret:  config.UserBotWebhookSecret,
 		TelegramBotUsername:    config.UserBotUsername,
+		VoiceMemberIDs:         config.VoiceMemberIDs,
+		WeeklyNumbersMemberIDs: config.WeeklyNumbersMemberIDs,
+	}
+}
+
+// pruneVoiceAttempts deletes voice-note records older than 24 hours every hour, so none is kept much longer than
+// the cap needs, even on days without voice notes (privacy policy: kept about 24 hours).
+func pruneVoiceAttempts(ctx context.Context, insights any) {
+	pruner, ok := insights.(interface {
+		PruneVoiceAttempts(context.Context, time.Time) error
+	})
+	if !ok {
+		return
+	}
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		if err := pruner.PruneVoiceAttempts(ctx, time.Now().UTC().Add(-24*time.Hour)); err != nil {
+			logger.FromContext(ctx).WithError(err).Error("voice_attempts_prune_failed")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }

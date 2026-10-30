@@ -21,20 +21,22 @@ import (
 
 const (
 	botNotLinked    = "This Telegram isn't linked to Bloomary yet. Sign in to Bloomary with LinkedIn, then open Settings → Telegram → Connect Telegram: %s/settings"
-	botHelp         = "Send me a voice note (up to 10 minutes) or text: each one is saved as a post idea in Bloomary. When your AI app turns it into a post, the preview comes here.\n\nTo change a post, reply to its preview with voice or text. To stop a scheduled post, tap Skip on its preview.\n\n📅 Planned posts shows what is scheduled.\nTo disconnect, open Bloomary → Settings → Telegram → Disconnect."
+	botHelpVoice    = "Send me a voice note (up to 10 minutes) or text: each one is saved as a post idea. When your AI app turns it into a post, the preview comes here.\n\nReply to a news story from your AI app to turn your take into a post.\nReply to a preview (voice or text) to change it. Tap Discard to drop a draft, or Skip to stop a scheduled post.\n\n📅 My posts shows your scheduled posts and recent drafts.\nTo disconnect, open Bloomary → Settings → Telegram → Disconnect."
+	botHelpText     = "Send me a text: each one is saved as a post idea. When your AI app turns it into a post, the preview comes here.\n\nReply to a news story from your AI app to turn your take into a post.\nReply to a preview to change it. Tap Discard to drop a draft, or Skip to stop a scheduled post.\n\n📅 My posts shows your scheduled posts and recent drafts.\nTo disconnect, open Bloomary → Settings → Telegram → Disconnect."
 	botSavedTail    = "When your AI app turns it into a post, the preview comes here."
 	botSaved        = "Saved as an idea. " + botSavedTail
+	botSavedReply   = "Saved as a new idea. (To change a post, reply to its preview instead.)"
 	botNumbers      = "Got your weekly numbers. They go into Sunday's report."
-	keyPlanned      = "📅 Planned posts"
+	keyPlanned      = "📅 My posts"
+	keyPlannedOld   = "📅 Planned posts"
 	keyHelp         = "❓ Help"
-	botUnlinked     = "Unlinked. Your ideas stay in Bloomary."
+	botUnlinked     = "Unlinked. Ideas you sent stay in your Bloomary account; connected AI apps can still read them."
 	botTextLimit    = "That's 60 ideas in 24 hours, the limit. Send more in a few hours."
 	botVoiceLimit   = "That's the voice limit for 24 hours (20 notes or 60 minutes). Send this one as text."
-	botNoVoice      = "Voice notes are not available right now. Send the idea as text."
+	botNoVoice      = "Voice notes aren't available yet. Send the idea as text."
 	botVoiceFail    = "Could not transcribe this voice note. Send it again or as text."
 	botVoiceEmpty   = "I couldn't hear anything in that voice note. Send it again or type it."
 	botUnsupported  = "I can read voice notes and text only. Send the idea as one of those."
-	botReplyHint    = "To change a post, reply to its preview (the message with the post text). To save a new idea, send it without replying."
 	botFailed       = "Something went wrong and this wasn't saved. Send it again in a minute."
 	snippetRunes    = 200
 	notLinkedRepeat = time.Hour
@@ -43,14 +45,15 @@ const (
 // botCommandPattern is a whole message that is one command (/help, /planned@bot); "/r/golang is ..." is an idea.
 var botCommandPattern = regexp.MustCompile(`^/[a-z_]+(@\w+)?$`)
 
-// weeklyNumbersPattern matches the member's weekly numbers message ("numbers: ...", or "Numbers, ..." from voice).
-var weeklyNumbersPattern = regexp.MustCompile(`(?i)^numbers[:,\s]`)
+// weeklyNumbersPattern matches a weekly numbers message ("numbers: ...", or "Numbers, ..." from voice); "Numbers show …" is an idea.
+var weeklyNumbersPattern = regexp.MustCompile(`(?i)^\s*numbers\s*[:,]`)
 
 // botKeyboard is the persistent reply keyboard: the main way to use the bot.
 var botKeyboard = [][]string{{keyPlanned, keyHelp}}
 
-// BotCommands is the command menu registered with setMyCommands.
-var BotCommands = []telegramDomain.Command{{Command: "planned", Description: "Scheduled posts with previews"}, {Command: "help", Description: "How the bot works"}}
+// BotCommands is the command menu registered with setMyCommands: empty, the keyboard buttons are the way in
+// (/planned and /help still work when typed).
+var BotCommands = []telegramDomain.Command{}
 
 // TelegramBotHandlers are the optional parts of the bot: inline buttons, commands and replies to its messages
 // (each reply goes to the first handler that claims it, e.g. post previews, then trend messages).
@@ -58,6 +61,10 @@ type TelegramBotHandlers struct {
 	Replies   []telegramDomain.ReplyHandler
 	Callbacks []telegramDomain.CallbackHandler
 	Commands  []telegramDomain.CommandHandler
+	// VoiceMembers may send voice notes (Deepgram); everyone else gets text-only replies.
+	VoiceMembers telegramDomain.MemberSet
+	// NumbersMembers get the weekly-numbers reply; for others a "numbers:" message is a plain idea.
+	NumbersMembers telegramDomain.MemberSet
 }
 
 var linkNoncePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{32}$`)
@@ -71,6 +78,8 @@ type telegramBot struct {
 	replies     []telegramDomain.ReplyHandler
 	callbacks   []telegramDomain.CallbackHandler
 	commands    []telegramDomain.CommandHandler
+	voice       telegramDomain.MemberSet
+	numbers     telegramDomain.MemberSet
 	platformURL string
 	// notLinkedAt throttles the "not linked" answer to one per Telegram user per notLinkedRepeat.
 	notLinkedMu sync.Mutex
@@ -89,6 +98,7 @@ func NewTelegramBot(
 	}
 	return &telegramBot{links: links, bot: bot, transcriber: transcriber, insights: insights, accounts: accounts,
 		replies: handlers.Replies, callbacks: handlers.Callbacks, commands: handlers.Commands, platformURL: strings.TrimRight(platformURL, "/"),
+		voice: handlers.VoiceMembers, numbers: handlers.NumbersMembers,
 		notLinkedAt: map[int64]time.Time{}}, nil
 }
 
@@ -136,7 +146,7 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 	if isCommand {
 		command = strings.SplitN(text, "@", 2)[0]
 	}
-	if text == keyPlanned {
+	if text == keyPlanned || text == keyPlannedOld {
 		command = "/planned"
 	}
 	for _, handler := range s.commands {
@@ -149,23 +159,26 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 		if err := s.links.DeleteByMemberID(ctx, link.MemberID); err != nil {
 			return err
 		}
-		return s.reply(ctx, message.ChatID, botUnlinked)
-	case isCommand, text == keyHelp, text == keyPlanned:
-		return s.reply(ctx, message.ChatID, botHelp)
+		_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: message.ChatID, Text: botUnlinked, RemoveKeyboard: true})
+		return err
+	case isCommand, text == keyHelp:
+		return s.reply(ctx, message.ChatID, s.help(link.MemberID))
 	case message.ReplyToMessageID != 0 && len(s.replies) > 0:
 		handled, err := s.handleReply(ctx, link, message)
 		if handled || err != nil {
 			return err
 		}
-		if message.ReplyToBot {
-			return s.reply(ctx, message.ChatID, botReplyHint)
-		}
+	}
+	// A reply to a bot message nobody claims (e.g. a runner's skip message) is a new idea, with a hint.
+	saved := botSaved
+	if message.ReplyToBot {
+		saved = botSavedReply
 	}
 	switch {
 	case message.Voice != nil:
 		return s.saveVoice(ctx, link, message)
 	case text != "":
-		return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceText, confirmation(text, botSaved))
+		return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceText, s.confirmation(link.MemberID, text, saved))
 	default:
 		return s.reply(ctx, message.ChatID, botUnsupported)
 	}
@@ -191,12 +204,19 @@ func (s *telegramBot) replyNotLinked(ctx context.Context, message *telegramDomai
 	return err
 }
 
-// confirmation is the save reply: weekly numbers get their own, so the member is not promised a post preview.
-func confirmation(text, saved string) string {
-	if weeklyNumbersPattern.MatchString(text) {
+// confirmation is the save reply: weekly numbers get their own for members with a weekly report.
+func (s *telegramBot) confirmation(memberID, text, saved string) string {
+	if s.numbers[memberID] && weeklyNumbersPattern.MatchString(text) {
 		return botNumbers
 	}
 	return saved
+}
+
+func (s *telegramBot) help(memberID string) string {
+	if s.voice[memberID] && s.transcriber != nil {
+		return botHelpVoice
+	}
+	return botHelpText
 }
 
 func (s *telegramBot) askLink(ctx context.Context, chatID int64, nonce string) error {
@@ -241,7 +261,11 @@ func (s *telegramBot) handleCallback(ctx context.Context, callback telegramDomai
 			return err
 		}
 		if strings.HasPrefix(text, "Linked") {
-			return s.reply(ctx, callback.ChatID, botHelp)
+			memberID := ""
+			if link, err := s.links.ByTelegramUser(ctx, callback.From.ID); err == nil {
+				memberID = link.MemberID
+			}
+			return s.reply(ctx, callback.ChatID, s.help(memberID))
 		}
 		return nil
 	}
@@ -291,7 +315,7 @@ func (s *telegramBot) saveVoice(ctx context.Context, link telegramDomain.Link, m
 	if failure != "" {
 		return s.reply(ctx, message.ChatID, failure)
 	}
-	return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceVoice, confirmation(text, "Saved: “"+snippet(text)+"”\n\n"+botSavedTail))
+	return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceVoice, s.confirmation(link.MemberID, text, "Saved: “"+snippet(text)+"”\n\n"+botSavedTail))
 }
 
 // handleReply passes a reply to one of the bot's messages to the first reply handler that owns it; handled is
@@ -334,20 +358,22 @@ func (s *telegramBot) handleReply(ctx context.Context, link telegramDomain.Link,
 	if err != nil {
 		return true, err
 	}
-	return true, s.reply(ctx, message.ChatID, confirmation)
+	s.confirm(ctx, message.ChatID, confirmation)
+	return true, nil
 }
 
 // transcribe returns the voice note's text, or the reply to send when it cannot be transcribed. Every attempt
 // that reaches Deepgram is reserved first (count and minutes per 24 hours), so failed or empty ones count too.
 func (s *telegramBot) transcribe(ctx context.Context, link telegramDomain.Link, message *telegramDomain.IncomingMessage) (string, string, error) {
-	if s.transcriber == nil {
+	// Voice goes to Deepgram (US) only for allow-listed members until its DPA is accepted.
+	if s.transcriber == nil || !s.voice[link.MemberID] {
 		return "", botNoVoice, nil
 	}
 	if message.Voice.Duration > insightDomain.MaxVoiceSeconds || message.Voice.FileSize > insightDomain.MaxVoiceFileBytes {
 		return "", "Voice notes up to 10 minutes only. Split it into shorter notes.", nil
 	}
 	now := time.Now().UTC()
-	ok, err := s.insights.ReserveVoice(ctx, link.MemberID, max(message.Voice.Duration, 1), now.Add(-24*time.Hour), now)
+	ok, err := s.insights.ReserveVoice(ctx, link.MemberID, reservedSeconds(message.Voice), now.Add(-24*time.Hour), now)
 	if err != nil {
 		return "", "", err
 	}
@@ -389,7 +415,22 @@ func (s *telegramBot) saveInsight(ctx context.Context, link telegramDomain.Link,
 	if err != nil {
 		return err
 	}
-	return s.reply(ctx, chatID, confirmation)
+	s.confirm(ctx, chatID, confirmation)
+	return nil
+}
+
+// confirm sends the reply after a successful save; a failure is only logged, so the member is never told
+// "wasn't saved" (and never resends) when the idea is already stored.
+func (s *telegramBot) confirm(ctx context.Context, chatID int64, text string) {
+	if err := s.reply(ctx, chatID, text); err != nil {
+		logger.FromContext(ctx).WithError(err).Info("telegram_confirmation_failed")
+	}
+}
+
+// reservedSeconds is the audio length counted against the daily cap: the duration the client reports, but at
+// least the file size at 16 kbit/s (2,000 bytes a second), since the client sets the duration.
+func reservedSeconds(voice *telegramDomain.Voice) int {
+	return max(voice.Duration, int(voice.FileSize/2000), 1)
 }
 
 // underLimit counts the member's insights of the last 24 hours (source "" counts all).

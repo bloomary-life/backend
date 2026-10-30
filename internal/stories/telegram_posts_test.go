@@ -7,6 +7,7 @@ import (
 	"time"
 
 	draftDomain "bloomary-api/internal/domain/draft"
+	insightDomain "bloomary-api/internal/domain/insight"
 	reviewDomain "bloomary-api/internal/domain/review"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
 	telegramDomain "bloomary-api/internal/domain/telegram"
@@ -46,13 +47,14 @@ func newPostsFixture(t *testing.T) postsFixture {
 func TestPlannedPostsButtonListsScheduledPostsInCyprusTimeWithPreviewButtons(t *testing.T) {
 	// Verifies: BE-018
 	f := newPostsFixture(t)
+	f.reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil)
 	f.jobs.EXPECT().ListActive(mock.Anything, "member-1").Return([]scheduledDomain.Post{
 		{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC)},
 		{ID: "job-2", DraftID: "draft-2", Status: scheduledDomain.Processing, ScheduledAt: time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC)},
 	}, nil)
 	f.drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Proof beats adjectives.\nSecond line", Status: "draft"}, nil)
 	f.gate.EXPECT().SendMessage(mock.Anything, mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.Contains(m.Text, "1. Tue 3 Nov, 10:00 — Proof beats adjectives.") && !strings.Contains(m.Text, "Second line") &&
+		return strings.Contains(m.Text, "1. Tue 3 Nov, 10:00 (UTC+2) — Proof beats adjectives.") && !strings.Contains(m.Text, "Second line") &&
 			len(m.Buttons) == 1 && m.Buttons[0][0].CallbackData == "pv:job-1"
 	})).Return(11, nil)
 
@@ -66,6 +68,7 @@ func TestPreviewButtonSendsPreviewThatAcceptsReplies(t *testing.T) {
 	f.drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Post", Status: "draft"}, nil)
 	f.reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, true).Return(0, nil)
 	f.reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.ScheduleID == "job-1" && n.Requested })).Return(nil)
+	f.reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	f.notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
 		return m.Buttons[0][0].Text == "✏️ How to edit" && m.Buttons[0][1].Text == "Skip"
 	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 12}, nil)
@@ -80,6 +83,7 @@ func TestPlannedPostsWithNothingScheduledPointsToDrafts(t *testing.T) {
 	// Verifies: BE-018
 	f := newPostsFixture(t)
 	f.jobs.EXPECT().ListActive(mock.Anything, "member-1").Return(nil, nil)
+	f.reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil)
 	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: plannedNone,
 		Buttons: [][]telegramDomain.Button{{{Text: "Open Drafts", URL: "https://platform.bloomary.life/drafts"}}}}).Return(11, nil)
 
@@ -106,7 +110,9 @@ func TestReplyToPreviewFromBeforeTheLinkIsNotAnEdit(t *testing.T) {
 	f.links.EXPECT().ByTelegramUser(mock.Anything, int64(100)).Return(telegramDomain.Link{MemberID: "member-1", ChatID: 100, TelegramUserID: 100, LinkedAt: linkedAt}, nil)
 	f.reviews.EXPECT().NoticeByMessage(mock.Anything, "member-1", int64(57)).
 		Return(reviewDomain.Notice{ID: "old", DraftID: "draft-1", Status: reviewDomain.NoticeSent, CreatedAt: linkedAt.Add(-time.Hour)}, nil)
-	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botReplyHint, Keyboard: botKeyboard}).Return(58, nil)
+	f.insights.EXPECT().CountSince(mock.Anything, "member-1", insightDomain.Source(""), mock.Anything).Return(0, nil)
+	f.insights.EXPECT().Create(mock.Anything, mock.MatchedBy(func(in insightDomain.Insight) bool { return in.Text == "Make it warmer" })).Return(nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botSavedReply, Keyboard: botKeyboard}).Return(58, nil)
 	update := privateMessage("Make it warmer")
 	update.Message.ReplyToMessageID, update.Message.ReplyToBot = 57, true
 

@@ -17,12 +17,15 @@ import (
 
 const (
 	previewPrefix  = "pv:"
-	editSaved      = "Got it — I'll rewrite the post and send you the new preview."
-	editTooLate    = "This post can't be changed any more: it was published, skipped or deleted."
+	editSavedTail  = "When your AI app rewrites the post, the new preview comes here."
+	editSaved      = "Got it. " + editSavedTail
+	editTooLate    = "This post can't be changed any more: it was published, skipped, discarded or deleted."
 	editLimit      = "Daily edit limit reached. Edit the post in Bloomary instead."
 	editHowTo      = "Reply to this message with a voice note or text and say what to change."
-	plannedNone    = "No scheduled posts. Drafts are not scheduled yet: open them in Bloomary → Drafts."
-	plannedHeader  = "Scheduled posts (Cyprus time):"
+	plannedNone    = "No scheduled posts and no drafts previewed in the last 7 days. All drafts: Bloomary → Drafts."
+	plannedHeader  = "Scheduled posts:"
+	draftsHeader   = "Drafts (not scheduled):"
+	draftsWindow   = 7 * 24 * time.Hour
 	plannedRunes   = 60
 	plannedMaxRows = 20
 )
@@ -113,6 +116,9 @@ func (s *EditReplies) Save(ctx context.Context, link telegramDomain.Link, claim 
 	if err != nil {
 		return "", err
 	}
+	if source == "voice" {
+		return "Got it: “" + snippet(text) + "”\n\n" + editSavedTail, nil
+	}
 	return editSaved, nil
 }
 
@@ -149,7 +155,8 @@ func (s *EditRequests) MarkApplied(ctx context.Context, memberID, id string) (re
 	return s.reviews.MarkEditApplied(ctx, memberID, id, time.Now().UTC())
 }
 
-// PlannedPosts answers /planned (and its keyboard button) with the member's scheduled posts, each with a Preview button.
+// PlannedPosts answers /planned (and the 📅 My posts button) with the member's scheduled posts and the drafts
+// previewed in the last 7 days that are still unpublished, each with a Preview button.
 type PlannedPosts struct {
 	jobs    scheduledDomain.Repository
 	drafts  draftDomain.Repository
@@ -187,31 +194,71 @@ func (s *PlannedPosts) HandleCommand(ctx context.Context, link telegramDomain.Li
 		if draft, err := s.drafts.ByID(ctx, link.MemberID, job.DraftID); err == nil {
 			first = firstLine(draft.Body)
 		}
-		when := job.ScheduledAt.In(postTimeZone).Format("Mon 2 Jan, 15:04")
+		when := formatPostTime(job.ScheduledAt)
 		lines = append(lines, fmt.Sprintf("%d. %s — %s", len(buttons)+1, when, first))
-		buttons = append(buttons, []telegramDomain.Button{{Text: fmt.Sprintf("Preview %d · %s", len(buttons)+1, when), CallbackData: previewPrefix + job.ID}})
+		buttons = append(buttons, []telegramDomain.Button{{Text: fmt.Sprintf("Preview %d · %s", len(buttons)+1, job.ScheduledAt.In(postTimeZone).Format("Mon 2 Jan, 15:04")), CallbackData: previewPrefix + job.ID}})
 	}
-	if len(lines) == 0 {
+	var sections []string
+	if len(lines) > 0 {
+		sections = append(sections, plannedHeader+"\n"+strings.Join(lines, "\n"))
+	}
+	draftLines, err := s.recentDrafts(ctx, link.MemberID, &buttons)
+	if err != nil {
+		return err
+	}
+	if len(draftLines) > 0 {
+		sections = append(sections, draftsHeader+"\n"+strings.Join(draftLines, "\n"))
+	}
+	if len(sections) == 0 {
 		_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: plannedNone,
 			Buttons: [][]telegramDomain.Button{{{Text: "Open Drafts", URL: s.notify.platformURL + "/drafts"}}}})
 		return err
 	}
-	_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: plannedHeader + "\n\n" + strings.Join(lines, "\n"), Buttons: buttons})
+	_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: strings.Join(sections, "\n\n"), Buttons: buttons})
 	return err
+}
+
+// recentDrafts lists the newest live draft preview per draft from the last 7 days whose draft is still unpublished.
+func (s *PlannedPosts) recentDrafts(ctx context.Context, memberID string, buttons *[][]telegramDomain.Button) ([]string, error) {
+	notices, err := s.notify.reviews.ListNotices(ctx, memberID, time.Now().UTC().Add(-draftsWindow))
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	seen := map[string]bool{}
+	for _, notice := range notices {
+		if notice.ScheduleID != "" || notice.Status != reviewDomain.NoticeSent || seen[notice.DraftID] || len(*buttons) == plannedMaxRows {
+			continue
+		}
+		seen[notice.DraftID] = true
+		draft, err := s.drafts.ByID(ctx, memberID, notice.DraftID)
+		if err != nil || draft.Status != "draft" {
+			continue
+		}
+		n := len(*buttons) + 1
+		lines = append(lines, fmt.Sprintf("%d. %s", n, firstLine(draft.Body)))
+		*buttons = append(*buttons, []telegramDomain.Button{{Text: fmt.Sprintf("Preview %d · draft", n), CallbackData: previewPrefix + "d:" + notice.ID}})
+	}
+	return lines, nil
 }
 
 func (s *PlannedPosts) Prefix() string { return previewPrefix }
 
-// HandleCallback sends the preview for "pv:<schedule id>"; "pv:e" (How to edit) explains how to reply.
+// HandleCallback sends the preview for "pv:<schedule id>" or a draft's "pv:d:<notice id>"; "pv:e" (How to edit) explains how to reply.
 func (s *PlannedPosts) HandleCallback(ctx context.Context, link telegramDomain.Link, callback telegramDomain.Callback) (string, error) {
 	id := strings.TrimPrefix(callback.Data, previewPrefix)
 	if id == "e" {
 		return editHowTo, nil
 	}
-	_, err := s.notify.Preview(ctx, link.MemberID, id)
+	var err error
+	if noticeID, isDraft := strings.CutPrefix(id, "d:"); isDraft {
+		_, err = s.notify.PreviewDraft(ctx, link.MemberID, noticeID)
+	} else {
+		_, err = s.notify.Preview(ctx, link.MemberID, id)
+	}
 	switch {
 	case errors.Is(err, reviewDomain.ErrNotScheduled), errors.Is(err, ErrMCPDraftNotFound):
-		return "This post is no longer scheduled.", nil
+		return "This post is no longer scheduled or the draft was published.", nil
 	case errors.Is(err, reviewDomain.ErrDailyLimit):
 		return "Daily preview limit reached. Open Bloomary to see the post.", nil
 	case err != nil:

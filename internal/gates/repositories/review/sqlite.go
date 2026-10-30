@@ -56,6 +56,15 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	if err := addIntColumn(db, "comment_suggestions", "message_id"); err != nil {
 		return nil, err
 	}
+	var hasSchedule int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('draft_first_comments') WHERE name='schedule_id'`).Scan(&hasSchedule); err != nil {
+		return nil, fmt.Errorf("read draft_first_comments columns: %w", err)
+	}
+	if hasSchedule == 0 {
+		if _, err := db.Exec(`ALTER TABLE draft_first_comments ADD COLUMN schedule_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return nil, fmt.Errorf("add draft_first_comments.schedule_id: %w", err)
+		}
+	}
 	for _, query := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_message ON scheduled_post_notices(member_id, message_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_photo ON scheduled_post_notices(member_id, photo_message_id)`,
@@ -101,6 +110,10 @@ func (r *SQLiteRepository) NoticeByID(ctx context.Context, memberID, id string) 
 func (r *SQLiteRepository) SkipNotice(ctx context.Context, memberID, id string, at time.Time) (reviewDomain.Notice, error) {
 	return scanNotice(r.db.QueryRowContext(ctx, `UPDATE scheduled_post_notices SET status='skipped',skipped_at=? WHERE member_id=? AND id=? AND status='sent' RETURNING `+noticeColumns,
 		formatTime(at), memberID, id))
+}
+
+func (r *SQLiteRepository) ReplaceNotice(ctx context.Context, memberID, id string) error {
+	return r.updateOne(ctx, `UPDATE scheduled_post_notices SET status='replaced' WHERE member_id=? AND id=? AND status='sent'`, memberID, id)
 }
 
 func (r *SQLiteRepository) ListNotices(ctx context.Context, memberID string, since time.Time) ([]reviewDomain.Notice, error) {
@@ -268,9 +281,9 @@ func (r *SQLiteRepository) SuggestionByMessage(ctx context.Context, memberID str
 	return s, err
 }
 
-func (r *SQLiteRepository) SaveFirstComment(ctx context.Context, memberID, draftID, text string, at time.Time) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO draft_first_comments(member_id,draft_id,body,created_at) VALUES(?,?,?,?)
-		ON CONFLICT(member_id, draft_id) DO UPDATE SET body=excluded.body, created_at=excluded.created_at`, memberID, draftID, text, formatTime(at))
+func (r *SQLiteRepository) SaveFirstComment(ctx context.Context, memberID, draftID, scheduleID, text string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO draft_first_comments(member_id,draft_id,schedule_id,body,created_at) VALUES(?,?,?,?,?)
+		ON CONFLICT(member_id, draft_id) DO UPDATE SET schedule_id=excluded.schedule_id, body=excluded.body, created_at=excluded.created_at`, memberID, draftID, scheduleID, text, formatTime(at))
 	if err != nil {
 		return fmt.Errorf("save first comment member_id=%q: %w", memberID, err)
 	}
@@ -278,14 +291,22 @@ func (r *SQLiteRepository) SaveFirstComment(ctx context.Context, memberID, draft
 	return nil
 }
 
-func (r *SQLiteRepository) FirstComment(ctx context.Context, memberID, draftID string) (string, error) {
-	var body string
-	err := r.db.QueryRowContext(ctx, `SELECT body FROM draft_first_comments WHERE member_id=? AND draft_id=?`, memberID, draftID).Scan(&body)
+func (r *SQLiteRepository) FirstComment(ctx context.Context, memberID, draftID string) (string, string, error) {
+	var body, scheduleID string
+	err := r.db.QueryRowContext(ctx, `SELECT body,schedule_id FROM draft_first_comments WHERE member_id=? AND draft_id=?`, memberID, draftID).Scan(&body, &scheduleID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", reviewDomain.ErrNotFound
+		return "", "", reviewDomain.ErrNotFound
 	}
 
-	return body, err
+	return body, scheduleID, err
+}
+
+func (r *SQLiteRepository) DeleteFirstComment(ctx context.Context, memberID, draftID string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM draft_first_comments WHERE member_id=? AND draft_id=?`, memberID, draftID); err != nil {
+		return fmt.Errorf("delete first comment member_id=%q: %w", memberID, err)
+	}
+
+	return nil
 }
 
 func (r *SQLiteRepository) DeleteByMemberID(ctx context.Context, memberID string) error {

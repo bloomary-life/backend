@@ -63,6 +63,8 @@ type telegramLinkResponse struct {
 	LinkedAt  string `json:"linkedAt,omitempty"`
 	Number    int    `json:"number,omitempty"`
 	Linked    bool   `json:"linked"`
+	// Voice is true when the member may send voice notes (until the Deepgram DPA is accepted: an allowlist).
+	Voice bool `json:"voice"`
 }
 
 // TelegramWebhook accepts Bot API updates. Only requests carrying the webhook secret set with
@@ -91,31 +93,48 @@ func (s *service) TelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	if !s.updateQueue().enqueue(context.WithoutCancel(r.Context()), update) {
+		// Full or shutting down: Telegram resends after a non-2xx answer, and update_id dedupe drops copies.
+		logger.FromContext(r.Context()).Error("telegram_update_refused_queue_full_or_closing")
+		writeAPIError(w, http.StatusServiceUnavailable, "busy", "try again later")
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *service) updateQueue() *telegramUpdateQueue {
 	s.telegramQueueOnce.Do(func() {
 		s.telegramQueue = newTelegramUpdateQueue(s.telegramBotStory, telegramWorkers, telegramMaxQueued)
 	})
-	if !s.telegramQueue.enqueue(context.WithoutCancel(r.Context()), update) {
-		logger.FromContext(r.Context()).Error("telegram_update_dropped_queue_full")
+	return s.telegramQueue
+}
+
+// DrainTelegram stops taking webhook updates (they get 503 and Telegram resends them later) and waits for the
+// queued ones until ctx ends.
+func (s *service) DrainTelegram(ctx context.Context) {
+	if s.telegramBotStory != nil {
+		s.updateQueue().drainAndClose(ctx)
 	}
-	w.WriteHeader(http.StatusOK)
 }
 
 const (
 	// telegramWorkers bounds updates handled at once (each voice note holds up to 20 MB in memory).
 	telegramWorkers = 4
-	// telegramMaxQueued bounds updates waiting in memory; more are dropped and logged.
+	// telegramMaxQueued bounds updates waiting in memory; more get 503 so Telegram resends them.
 	telegramMaxQueued = 500
 )
 
 // telegramUpdateQueue handles updates one at a time per chat, in arrival order, with at most `workers`
 // chats in flight. A panic in one update is logged and does not stop the API.
 type telegramUpdateQueue struct {
-	bot     telegramDomain.BotStory
-	slots   chan struct{}
-	mu      sync.Mutex
-	pending map[int64][]queuedUpdate
-	queued  int
-	max     int
+	bot      telegramDomain.BotStory
+	slots    chan struct{}
+	mu       sync.Mutex
+	pending  map[int64][]queuedUpdate
+	queued   int
+	max      int
+	closed   bool
+	draining sync.WaitGroup
 }
 
 type queuedUpdate struct {
@@ -132,19 +151,37 @@ func (q *telegramUpdateQueue) enqueue(ctx context.Context, update telegramDomain
 	chat := updateChatID(update)
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.queued >= q.max {
+	if q.closed || q.queued >= q.max {
 		return false
 	}
 	q.queued++
 	_, running := q.pending[chat]
 	q.pending[chat] = append(q.pending[chat], queuedUpdate{ctx: ctx, update: update})
 	if !running {
+		q.draining.Add(1)
 		go q.drain(chat)
 	}
 	return true
 }
 
+// drainAndClose refuses new updates and waits for queued ones, or until ctx ends.
+func (q *telegramUpdateQueue) drainAndClose(ctx context.Context) {
+	q.mu.Lock()
+	q.closed = true
+	q.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		q.draining.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
 func (q *telegramUpdateQueue) drain(chat int64) {
+	defer q.draining.Done()
 	for {
 		q.mu.Lock()
 		items := q.pending[chat]
@@ -221,14 +258,14 @@ func (s *service) TelegramLink(w http.ResponseWriter, r *http.Request) {
 	default:
 		link, err := s.telegramLinkStory.Status(r.Context(), memberID)
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
-			writeJSON(w, telegramLinkResponse{})
+			writeJSON(w, telegramLinkResponse{Voice: s.telegramLinkStory.VoiceAllowed(memberID)})
 			return
 		}
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "telegram_status_failed", "Telegram status could not be loaded")
 			return
 		}
-		writeJSON(w, telegramLinkResponse{Linked: true, Username: link.Username, LinkedAt: link.LinkedAt.UTC().Format(time.RFC3339)})
+		writeJSON(w, telegramLinkResponse{Linked: true, Username: link.Username, LinkedAt: link.LinkedAt.UTC().Format(time.RFC3339), Voice: s.telegramLinkStory.VoiceAllowed(memberID)})
 	}
 }
 

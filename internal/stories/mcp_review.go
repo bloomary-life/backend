@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -64,16 +65,19 @@ func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note st
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
-	return s.send(ctx, memberID, draft, job, note, false)
+	return s.send(ctx, memberID, draft, job, note, "", false)
 }
 
 // NotifyDraft sends the preview of an unscheduled, unpublished draft (draft-only mode): no time and no Skip.
-func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, note string) (reviewDomain.Notice, error) {
+func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, note, firstComment string) (reviewDomain.Notice, error) {
 	if _, err := requireMCPPaid(ctx, s.access, memberID); err != nil {
 		return reviewDomain.Notice{}, err
 	}
 	if utf8.RuneCountInString(note) > reviewDomain.MaxNoteRunes {
 		return reviewDomain.Notice{}, fmt.Errorf("note is longer than %d characters", reviewDomain.MaxNoteRunes)
+	}
+	if firstComment = strings.TrimSpace(firstComment); utf8.RuneCountInString(firstComment) > reviewDomain.MaxFirstCommentRunes {
+		return reviewDomain.Notice{}, fmt.Errorf("first_comment is longer than %d characters", reviewDomain.MaxFirstCommentRunes)
 	}
 	draft, err := s.drafts.ByID(ctx, memberID, draftID)
 	if err != nil {
@@ -82,7 +86,20 @@ func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, no
 	if draft.Status != "draft" {
 		return reviewDomain.Notice{}, ErrMCPDraftNotEditable
 	}
-	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note, false)
+	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note, firstComment, false)
+}
+
+// PreviewDraft sends again the draft of one of the member's draft previews on request in the bot (My posts → Preview).
+func (s *NotifyScheduled) PreviewDraft(ctx context.Context, memberID, noticeID string) (reviewDomain.Notice, error) {
+	notice, err := s.reviews.NoticeByID(ctx, memberID, noticeID)
+	if err != nil || notice.Status != reviewDomain.NoticeSent {
+		return reviewDomain.Notice{}, ErrMCPDraftNotFound
+	}
+	draft, err := s.drafts.ByID(ctx, memberID, notice.DraftID)
+	if err != nil || draft.Status != "draft" {
+		return reviewDomain.Notice{}, ErrMCPDraftNotFound
+	}
+	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, "", "", true)
 }
 
 // Preview sends the preview of one of the member's scheduled posts on request in the bot (/planned → Preview).
@@ -95,12 +112,12 @@ func (s *NotifyScheduled) Preview(ctx context.Context, memberID, scheduleID stri
 	if err != nil {
 		return reviewDomain.Notice{}, ErrMCPDraftNotFound
 	}
-	return s.send(ctx, memberID, draft, job, "", true)
+	return s.send(ctx, memberID, draft, job, "", "", true)
 }
 
 // send stores a notice and sends the preview; a reply to the preview message (or its image) becomes an edit request.
 // requested previews (the member's Preview taps) count against their own daily limit, not the AI app's.
-func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note string, requested bool) (reviewDomain.Notice, error) {
+func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note, firstComment string, requested bool) (reviewDomain.Notice, error) {
 	now := time.Now().UTC()
 	count, err := s.reviews.CountNoticesSince(ctx, memberID, now.Add(-24*time.Hour), requested)
 	if err != nil {
@@ -134,9 +151,15 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 	if job.ID == "" {
 		header, first[1].Text = draftHeader, "Discard"
 	}
-	message := telegramDomain.OutgoingMessage{Text: noticeText(header, notice), Buttons: [][]telegramDomain.Button{
-		first, {{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draft.DraftID)}},
-	}}
+	text, buttons := noticeText(header, notice), [][]telegramDomain.Button{first}
+	if firstComment != "" {
+		text = noticeTextWithTail(header, notice, firstCommentBlock+firstComment)
+		if utf8.RuneCountInString(firstComment) <= reviewDomain.CopyTextLimit {
+			buttons = append(buttons, []telegramDomain.Button{{Text: "Copy first comment", CopyText: firstComment}})
+		}
+	}
+	buttons = append(buttons, []telegramDomain.Button{{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draft.DraftID)}})
+	message := telegramDomain.OutgoingMessage{Text: text, Buttons: buttons}
 	sent, err := s.notifier.Notify(ctx, memberID, message, photo)
 	if err != nil {
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
@@ -148,7 +171,31 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 	if err := s.reviews.SetNoticeMessage(ctx, memberID, id, sent.MessageID, sent.PhotoMessageID); err != nil {
 		return reviewDomain.Notice{}, err
 	}
+	s.replaceOlder(ctx, notice)
 	return notice, nil
+}
+
+const replacedPreview = "Replaced by a newer preview below."
+
+// replaceOlder turns the draft's earlier previews into "Replaced by a newer preview below." without buttons,
+// so only the newest one can be skipped or discarded. Failures are logged: the new preview already went out.
+func (s *NotifyScheduled) replaceOlder(ctx context.Context, current reviewDomain.Notice) {
+	notices, err := s.reviews.ListNotices(ctx, current.MemberID, current.CreatedAt.Add(-reviewDomain.FeedbackWindow))
+	if err != nil {
+		logger.FromContext(ctx).WithError(err).Info("telegram_list_previews_failed")
+		return
+	}
+	for _, older := range notices {
+		if older.ID == current.ID || older.DraftID != current.DraftID || older.Status != reviewDomain.NoticeSent || older.MessageID == 0 {
+			continue
+		}
+		if err := s.reviews.ReplaceNotice(ctx, current.MemberID, older.ID); err != nil {
+			continue
+		}
+		if err := s.notifier.Replace(ctx, current.MemberID, older.MessageID, replacedPreview); err != nil {
+			logger.FromContext(ctx).WithError(err).Info("telegram_replace_preview_failed")
+		}
+	}
 }
 
 func (s *NotifyScheduled) activeSchedule(ctx context.Context, memberID, draftID string) (scheduledDomain.Post, error) {
@@ -203,7 +250,7 @@ func (s *SkipCallbacks) HandleCallback(ctx context.Context, link telegramDomain.
 	if notice.Status == reviewDomain.NoticeSkipped {
 		return "Already done.", nil
 	}
-	result := "Discarded: the draft stays in Bloomary."
+	result := "Discarded. No more edits from here; the draft is still in Bloomary → Drafts."
 	if notice.ScheduleID != "" {
 		job, err := s.jobs.ByID(ctx, link.MemberID, notice.ScheduleID)
 		if err != nil {
@@ -225,6 +272,9 @@ func (s *SkipCallbacks) HandleCallback(ctx context.Context, link telegramDomain.
 		if !cancelled {
 			// The worker claimed the post between the status check and the cancel.
 			return skipTooLate, nil
+		}
+		if err := s.reviews.DeleteFirstComment(ctx, link.MemberID, notice.DraftID); err != nil {
+			logger.FromContext(ctx).WithError(err).Info("first_comment_delete_failed")
 		}
 		result = "Skipped: the schedule is cancelled, the draft stays in Bloomary."
 	}
@@ -260,7 +310,7 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	}
 	// Comments target LinkedIn posts only; a trend links to its source, which can be any https site.
 	target, err := url.Parse(strings.TrimSpace(in.TargetURL))
-	if in.Kind == reviewDomain.KindTrend && (err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil) {
+	if in.Kind == reviewDomain.KindTrend && (err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil || net.ParseIP(target.Hostname()) != nil) {
 		return reviewDomain.Suggestion{}, reviewDomain.ErrInvalidSource
 	}
 	if in.Kind == reviewDomain.KindComment && (err != nil || target.Scheme != "https" || (target.Host != "www.linkedin.com" && target.Host != "linkedin.com") || target.User != nil) {
@@ -291,7 +341,7 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 		return reviewDomain.Suggestion{}, err
 	}
 	if in.Kind == reviewDomain.KindTrend {
-		return s.sendTrend(ctx, suggestion)
+		return s.sendTrend(ctx, suggestion, in.Silent)
 	}
 	first := []telegramDomain.Button{{Text: "Open post", URL: suggestion.TargetURL}}
 	if utf8.RuneCountInString(text) <= reviewDomain.CopyTextLimit {
@@ -305,7 +355,7 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	if utf16Len(body+suggestionRateLine) <= telegramMessageLimit {
 		body += suggestionRateLine
 	}
-	message := telegramDomain.OutgoingMessage{Text: body, Buttons: [][]telegramDomain.Button{
+	message := telegramDomain.OutgoingMessage{Text: body, Silent: in.Silent, Buttons: [][]telegramDomain.Button{
 		first, ratings, {{Text: "Posted", CallbackData: "sg:" + id + ":p"}},
 	}}
 	if _, err := s.notifier.Notify(ctx, in.MemberID, message, nil); err != nil {
@@ -317,12 +367,12 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	return suggestion, nil
 }
 
-const trendFooter = "\n\nReply with a voice note to turn this into a post."
+const trendFooter = "\n\nReply to this message (voice or text) with your take and it becomes a post draft."
 
 // sendTrend sends a story with an Open source button; the message ID is kept so a reply becomes an insight with the story.
-func (s *SendSuggestion) sendTrend(ctx context.Context, suggestion reviewDomain.Suggestion) (reviewDomain.Suggestion, error) {
-	message := telegramDomain.OutgoingMessage{Text: fitTelegram("Trend\n", suggestion.Text, "") + trendFooter,
-		Buttons: [][]telegramDomain.Button{{{Text: "Open source", URL: suggestion.TargetURL}}}}
+func (s *SendSuggestion) sendTrend(ctx context.Context, suggestion reviewDomain.Suggestion, silent bool) (reviewDomain.Suggestion, error) {
+	message := telegramDomain.OutgoingMessage{Text: fitTelegram("Story for today\n", suggestion.Text, "") + trendFooter,
+		Buttons: [][]telegramDomain.Button{{{Text: "Open source", URL: suggestion.TargetURL}}}, Silent: silent}
 	sent, err := s.notifier.Notify(ctx, suggestion.MemberID, message, nil)
 	if err != nil {
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
@@ -337,7 +387,7 @@ func (s *SendSuggestion) sendTrend(ctx context.Context, suggestion reviewDomain.
 	return suggestion, nil
 }
 
-const suggestionRateLine = "\n\nRate the draft 1 (bad) to 5 (posted as is):"
+const suggestionRateLine = "\n\nRate this comment idea 1 (unusable) to 5 (good as is). Tap Posted once it's on LinkedIn."
 
 // suggestionText is the comment idea message without the rating line.
 func suggestionText(s reviewDomain.Suggestion) string {
@@ -456,7 +506,18 @@ func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notic
 	}
 }
 
+const firstCommentBlock = "\n\nFirst comment (paste under the post after you publish):\n"
+
+// noticeTextWithTail is noticeText with tail (the first comment) kept whole after the post; the post is shortened instead.
+func noticeTextWithTail(header string, notice reviewDomain.Notice, tail string) string {
+	return noticeHead(header, notice, telegramMessageLimit-utf16Len(tail)) + tail
+}
+
 func noticeText(header string, notice reviewDomain.Notice) string {
+	return noticeHead(header, notice, telegramMessageLimit)
+}
+
+func noticeHead(header string, notice reviewDomain.Notice, limit int) string {
 	head := header
 	if notice.ScheduleID != "" {
 		head += "\nGoes out: " + formatPostTime(notice.ScheduledAt)
@@ -464,15 +525,19 @@ func noticeText(header string, notice reviewDomain.Notice) string {
 	if notice.Note != "" {
 		head += "\nNote: " + notice.Note
 	}
-	return fitTelegram(head+"\n\n", notice.ProposedText, "\n\n(Shortened here; open Bloomary for the full text.)")
+	return fitTelegramLimit(head+"\n\n", notice.ProposedText, "\n\n(Shortened here; open Bloomary for the full text.)", limit)
 }
 
 // fitTelegram appends body to head, cutting body (and adding suffix) so the message fits Telegram's limit.
 func fitTelegram(head, body, suffix string) string {
-	if utf16Len(head)+utf16Len(body) <= telegramMessageLimit {
+	return fitTelegramLimit(head, body, suffix, telegramMessageLimit)
+}
+
+func fitTelegramLimit(head, body, suffix string, limit int) string {
+	if utf16Len(head)+utf16Len(body) <= limit {
 		return head + body
 	}
-	room := telegramMessageLimit - utf16Len(head) - utf16Len(suffix)
+	room := limit - utf16Len(head) - utf16Len(suffix)
 	used := 0
 	var cut strings.Builder
 	for _, r := range body {
@@ -494,8 +559,16 @@ func utf16Len(s string) int {
 }
 
 // formatPostTime shows a post time as /planned does: in the member's post time zone (Cyprus).
+// formatPostTime shows a post time in postTimeZone with its UTC offset ("Tue 3 Nov, 10:00 (UTC+2)"), so a member
+// in another zone can read it.
 func formatPostTime(t time.Time) string {
-	return t.In(postTimeZone).Format("Mon 2 Jan, 15:04") + " (Cyprus)"
+	local := t.In(postTimeZone)
+	_, offset := local.Zone()
+	label := fmt.Sprintf("UTC%+d", offset/3600)
+	if offset%3600 != 0 {
+		label = "UTC" + local.Format("-07:00")
+	}
+	return local.Format("Mon 2 Jan, 15:04") + " (" + label + ")"
 }
 
 func randomHex(size int) (string, error) {
