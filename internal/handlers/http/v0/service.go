@@ -92,6 +92,7 @@ type service struct {
 	sendSuggestionStory   reviewDomain.SendSuggestionStory
 	listFeedbackStory     reviewDomain.ListFeedbackStory
 	editRequestsStory     reviewDomain.EditRequestsStory
+	firstCommentStory     reviewDomain.FirstCommentStory
 	mcpAuthorizationStory mcpDomain.AuthorizationStory
 	mcpTokenVerifier      mcpDomain.AccessTokenVerifier
 	mcpGrants             mcpDomain.GrantStore
@@ -152,8 +153,9 @@ type ApplicationStories struct {
 	AttachMCPImage draftDomain.AttachMCPImageStory
 	ListFeedback   reviewDomain.ListFeedbackStory
 	EditRequests   reviewDomain.EditRequestsStory
-	// NotifyScheduled and SendSuggestion stay nil while the user bot is not configured.
+	// NotifyScheduled, SendSuggestion and FirstComments stay nil while the user bot is not configured.
 	NotifyScheduled    reviewDomain.NotifyScheduledStory
+	FirstComments      reviewDomain.FirstCommentStory
 	SendSuggestion     reviewDomain.SendSuggestionStory
 	DraftImages        draftDomain.ImageStory
 	AppleTransaction   appleiapDomain.TransactionSyncStory
@@ -232,6 +234,7 @@ func NewService(
 		sendSuggestionStory:   appStories.SendSuggestion,
 		listFeedbackStory:     appStories.ListFeedback,
 		editRequestsStory:     appStories.EditRequests,
+		firstCommentStory:     appStories.FirstComments,
 		mcpAuthorizationStory: appStories.MCPAuthorization,
 		mcpTokenVerifier:      appStories.MCPTokenVerifier,
 		mcpGrants:             appStories.MCPGrants,

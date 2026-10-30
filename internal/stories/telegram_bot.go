@@ -52,9 +52,10 @@ var botKeyboard = [][]string{{keyPlanned, keyHelp}}
 // BotCommands is the command menu registered with setMyCommands.
 var BotCommands = []telegramDomain.Command{{Command: "planned", Description: "Scheduled posts with previews"}, {Command: "help", Description: "How the bot works"}}
 
-// TelegramBotHandlers are the optional parts of the bot: inline buttons, commands and replies to its messages.
+// TelegramBotHandlers are the optional parts of the bot: inline buttons, commands and replies to its messages
+// (each reply goes to the first handler that claims it, e.g. post previews, then trend messages).
 type TelegramBotHandlers struct {
-	Replies   telegramDomain.ReplyHandler
+	Replies   []telegramDomain.ReplyHandler
 	Callbacks []telegramDomain.CallbackHandler
 	Commands  []telegramDomain.CommandHandler
 }
@@ -67,7 +68,7 @@ type telegramBot struct {
 	transcriber telegramDomain.Transcriber
 	insights    insightDomain.Repository
 	accounts    accountDomain.Repository
-	replies     telegramDomain.ReplyHandler
+	replies     []telegramDomain.ReplyHandler
 	callbacks   []telegramDomain.CallbackHandler
 	commands    []telegramDomain.CommandHandler
 	platformURL string
@@ -151,7 +152,7 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 		return s.reply(ctx, message.ChatID, botUnlinked)
 	case isCommand, text == keyHelp, text == keyPlanned:
 		return s.reply(ctx, message.ChatID, botHelp)
-	case message.ReplyToMessageID != 0 && s.replies != nil:
+	case message.ReplyToMessageID != 0 && len(s.replies) > 0:
 		handled, err := s.handleReply(ctx, link, message)
 		if handled || err != nil {
 			return err
@@ -293,12 +294,23 @@ func (s *telegramBot) saveVoice(ctx context.Context, link telegramDomain.Link, m
 	return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceVoice, confirmation(text, "Saved: “"+snippet(text)+"”\n\n"+botSavedTail))
 }
 
-// handleReply passes a reply to one of the bot's messages to the reply handler; handled is false when the
-// handler does not own the replied message, so the message is saved as a normal insight.
+// handleReply passes a reply to one of the bot's messages to the first reply handler that owns it; handled is
+// false when none does, so the message is saved as a normal insight.
 func (s *telegramBot) handleReply(ctx context.Context, link telegramDomain.Link, message *telegramDomain.IncomingMessage) (bool, error) {
-	claim, ok, err := s.replies.Claim(ctx, link, message.ReplyToMessageID)
-	if err != nil || !ok {
-		return false, err
+	var handler telegramDomain.ReplyHandler
+	var claim telegramDomain.ReplyClaim
+	for _, candidate := range s.replies {
+		found, ok, err := candidate.Claim(ctx, link, message.ReplyToMessageID)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			handler, claim = candidate, found
+			break
+		}
+	}
+	if handler == nil {
+		return false, nil
 	}
 	if claim.Refusal != "" {
 		return true, s.reply(ctx, message.ChatID, claim.Refusal)
@@ -306,6 +318,7 @@ func (s *telegramBot) handleReply(ctx context.Context, link telegramDomain.Link,
 	text, source := strings.TrimSpace(message.Text), string(insightDomain.SourceText)
 	if message.Voice != nil {
 		var failure string
+		var err error
 		if text, failure, err = s.transcribe(ctx, link, message); err != nil || failure != "" {
 			if err != nil {
 				return true, err
@@ -315,9 +328,9 @@ func (s *telegramBot) handleReply(ctx context.Context, link telegramDomain.Link,
 		source = string(insightDomain.SourceVoice)
 	}
 	if text == "" {
-		return true, s.reply(ctx, message.ChatID, editHint)
+		return true, s.reply(ctx, message.ChatID, botUnsupported)
 	}
-	confirmation, err := s.replies.Save(ctx, link, claim, text, source)
+	confirmation, err := handler.Save(ctx, link, claim, text, source)
 	if err != nil {
 		return true, err
 	}

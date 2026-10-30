@@ -11,6 +11,7 @@ import (
 	dailyDomain "bloomary-api/internal/domain/daily"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
+	linkedinDomain "bloomary-api/internal/domain/linkedin"
 	scheduleDomain "bloomary-api/internal/domain/scheduledpost"
 	accountMocks "bloomary-api/internal/mocks/domain/account"
 	draftMocks "bloomary-api/internal/mocks/domain/draft"
@@ -19,6 +20,7 @@ import (
 	scheduleMocks "bloomary-api/internal/mocks/domain/scheduledpost"
 
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestScheduleAllowsTrialMember(t *testing.T) {
@@ -75,4 +77,37 @@ func TestScheduleRefusesPublishedDraft(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unpublished") {
 		t.Fatalf("published draft must not be scheduled again, got %v", err)
 	}
+}
+
+type recordedPublish struct{ posts []scheduleDomain.Post }
+
+func (r *recordedPublish) PostPublished(_ context.Context, post scheduleDomain.Post) {
+	r.posts = append(r.posts, post)
+}
+
+func TestPublishedPostRunsTheHookWithItsLinkedInID(t *testing.T) {
+	// Verifies: BE-024
+	job := scheduleDomain.Post{ID: "job-1", MemberID: "member-1", DraftID: "draft-1", Status: scheduleDomain.Processing}
+	jobs := scheduleMocks.NewMockRepository(t)
+	jobs.EXPECT().ClaimDue(mock.Anything, mock.Anything).Return(job, nil)
+	jobs.EXPECT().Update(mock.Anything, "job-1", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	accounts := accountMocks.NewMockRepository(t)
+	accounts.EXPECT().ActiveByMemberID(mock.Anything, "member-1").Return(accountDomain.TokenPair{AccessToken: "token", ExpiresAt: time.Now().Add(time.Hour)}, nil)
+	gate := linkedinMocks.NewMockGate(t)
+	gate.EXPECT().UserInfo(mock.Anything, "token").Return(linkedinDomain.Profile{MemberID: "member-1"}, nil)
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Post", Status: "draft"}, nil)
+	drafts.EXPECT().MarkPublished(mock.Anything, "member-1", "draft-1").Return(nil)
+	posts := linkedinMocks.NewMockLinkedInPostStory(t)
+	posts.EXPECT().CreatePost(mock.Anything, mock.Anything).Return(linkedinDomain.CreatePostOutput{PostID: "urn:li:share:7"}, nil)
+	story, err := NewLinkedInScheduleStory(jobs, accounts, drafts, draftMocks.NewMockObjectStore(t), entitlementMocks.NewMockAccessStory(t), gate, posts, time.Minute, 31)
+	require.NoError(t, err)
+	hook := &recordedPublish{}
+	story.(scheduleDomain.PublishedHooks).OnPublished(hook)
+
+	require.True(t, story.(*linkedInScheduleStory).publishOne(context.Background()))
+
+	require.Len(t, hook.posts, 1)
+	require.Equal(t, "urn:li:share:7", hook.posts[0].LinkedInPostID)
+	require.Equal(t, scheduleDomain.Published, hook.posts[0].Status)
 }

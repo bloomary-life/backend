@@ -111,7 +111,7 @@ func TestTelegramWebhookStoresVoiceReplyToPreviewAsEditRequest(t *testing.T) {
 	replies, err := stories.NewEditReplies(reviews, jobs, draftMocks.NewMockRepository(t))
 	require.NoError(t, err)
 	bot, err := stories.NewTelegramBot(links, gate, transcriber, insights, accountMocks.NewMockRepository(t), "https://platform.bloomary.life",
-		stories.TelegramBotHandlers{Replies: replies})
+		stories.TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{replies}})
 	require.NoError(t, err)
 	svc := &service{telegramBotStory: bot, config: Config{TelegramWebhookSecret: "webhook-secret"}}
 	request := httptest.NewRequest(http.MethodPost, "/api/telegram/webhook", strings.NewReader(

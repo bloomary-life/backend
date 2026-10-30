@@ -12,7 +12,7 @@ import (
 
 const (
 	noticeColumns     = `id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,COALESCE(skipped_at,''),message_id,photo_message_id,requested`
-	suggestionColumns = `id,member_id,kind,target_url,body,context,rating,created_at,COALESCE(rated_at,''),COALESCE(posted_at,'')`
+	suggestionColumns = `id,member_id,kind,target_url,body,context,rating,created_at,COALESCE(rated_at,''),COALESCE(posted_at,''),message_id`
 	editColumns       = `id,member_id,draft_id,notice_id,body,source,created_at,COALESCE(applied_at,'')`
 )
 
@@ -40,6 +40,8 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 			id TEXT PRIMARY KEY, member_id TEXT NOT NULL, draft_id TEXT NOT NULL, notice_id TEXT NOT NULL,
 			body TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL, applied_at TEXT)`,
 		`CREATE INDEX IF NOT EXISTS idx_draft_edit_requests_member_created ON draft_edit_requests(member_id, created_at)`,
+		`CREATE TABLE IF NOT EXISTS draft_first_comments (
+			member_id TEXT NOT NULL, draft_id TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(member_id, draft_id))`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			return nil, fmt.Errorf("create review tables: %w", err)
@@ -47,13 +49,17 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	}
 	// Added after the first release: add a column only when it is missing, so any other error stops startup.
 	for _, column := range []string{"message_id", "photo_message_id", "requested"} {
-		if err := addNoticeColumn(db, column); err != nil {
+		if err := addIntColumn(db, "scheduled_post_notices", column); err != nil {
 			return nil, err
 		}
+	}
+	if err := addIntColumn(db, "comment_suggestions", "message_id"); err != nil {
+		return nil, err
 	}
 	for _, query := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_message ON scheduled_post_notices(member_id, message_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_photo ON scheduled_post_notices(member_id, photo_message_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_comment_suggestions_member_message ON comment_suggestions(member_id, message_id)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			return nil, fmt.Errorf("create review tables: %w", err)
@@ -63,16 +69,17 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	return &SQLiteRepository{db: db}, nil
 }
 
-func addNoticeColumn(db *sql.DB, column string) error {
+// addIntColumn adds an INTEGER column (default 0) to one of this repository's tables when it is missing.
+func addIntColumn(db *sql.DB, table, column string) error {
 	var exists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('scheduled_post_notices') WHERE name=?`, column).Scan(&exists); err != nil {
-		return fmt.Errorf("read scheduled_post_notices columns: %w", err)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`, table, column).Scan(&exists); err != nil {
+		return fmt.Errorf("read %s columns: %w", table, err)
 	}
 	if exists > 0 {
 		return nil
 	}
-	if _, err := db.Exec(`ALTER TABLE scheduled_post_notices ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
-		return fmt.Errorf("add scheduled_post_notices.%s: %w", column, err)
+	if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
 	}
 	return nil
 }
@@ -235,8 +242,54 @@ func (r *SQLiteRepository) CountSuggestionsSince(ctx context.Context, memberID s
 	return r.count(ctx, `SELECT COUNT(*) FROM comment_suggestions WHERE member_id=? AND created_at>=?`, memberID, since)
 }
 
+func (r *SQLiteRepository) SetSuggestionMessage(ctx context.Context, memberID, id string, messageID int64) error {
+	return r.updateOne(ctx, `UPDATE comment_suggestions SET message_id=? WHERE member_id=? AND id=?`, messageID, memberID, id)
+}
+
+func (r *SQLiteRepository) SuggestionByID(ctx context.Context, memberID, id string) (reviewDomain.Suggestion, error) {
+	s, err := scanSuggestion(r.db.QueryRowContext(ctx, `SELECT `+suggestionColumns+` FROM comment_suggestions WHERE member_id=? AND id=?`, memberID, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrNotFound
+	}
+
+	return s, err
+}
+
+func (r *SQLiteRepository) SuggestionByMessage(ctx context.Context, memberID string, messageID int64) (reviewDomain.Suggestion, error) {
+	if messageID == 0 {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrNotFound
+	}
+
+	s, err := scanSuggestion(r.db.QueryRowContext(ctx, `SELECT `+suggestionColumns+` FROM comment_suggestions WHERE member_id=? AND message_id=? ORDER BY created_at DESC LIMIT 1`, memberID, messageID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrNotFound
+	}
+
+	return s, err
+}
+
+func (r *SQLiteRepository) SaveFirstComment(ctx context.Context, memberID, draftID, text string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO draft_first_comments(member_id,draft_id,body,created_at) VALUES(?,?,?,?)
+		ON CONFLICT(member_id, draft_id) DO UPDATE SET body=excluded.body, created_at=excluded.created_at`, memberID, draftID, text, formatTime(at))
+	if err != nil {
+		return fmt.Errorf("save first comment member_id=%q: %w", memberID, err)
+	}
+
+	return nil
+}
+
+func (r *SQLiteRepository) FirstComment(ctx context.Context, memberID, draftID string) (string, error) {
+	var body string
+	err := r.db.QueryRowContext(ctx, `SELECT body FROM draft_first_comments WHERE member_id=? AND draft_id=?`, memberID, draftID).Scan(&body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", reviewDomain.ErrNotFound
+	}
+
+	return body, err
+}
+
 func (r *SQLiteRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
-	for _, query := range []string{`DELETE FROM scheduled_post_notices WHERE member_id=?`, `DELETE FROM comment_suggestions WHERE member_id=?`, `DELETE FROM draft_edit_requests WHERE member_id=?`} {
+	for _, query := range []string{`DELETE FROM scheduled_post_notices WHERE member_id=?`, `DELETE FROM comment_suggestions WHERE member_id=?`, `DELETE FROM draft_edit_requests WHERE member_id=?`, `DELETE FROM draft_first_comments WHERE member_id=?`} {
 		if _, err := r.db.ExecContext(ctx, query, memberID); err != nil {
 			return fmt.Errorf("delete review data member_id=%q: %w", memberID, err)
 		}
@@ -298,7 +351,7 @@ func scanNotice(row scanner) (reviewDomain.Notice, error) {
 func scanSuggestion(row scanner) (reviewDomain.Suggestion, error) {
 	var s reviewDomain.Suggestion
 	var createdAt, ratedAt, postedAt string
-	err := row.Scan(&s.ID, &s.MemberID, &s.Kind, &s.TargetURL, &s.Text, &s.Context, &s.Rating, &createdAt, &ratedAt, &postedAt)
+	err := row.Scan(&s.ID, &s.MemberID, &s.Kind, &s.TargetURL, &s.Text, &s.Context, &s.Rating, &createdAt, &ratedAt, &postedAt, &s.MessageID)
 	if err != nil {
 		return reviewDomain.Suggestion{}, err
 	}

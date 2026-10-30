@@ -20,7 +20,6 @@ const (
 	editSaved      = "Got it — I'll rewrite the post and send you the new preview."
 	editTooLate    = "This post can't be changed any more: it was published, skipped or deleted."
 	editLimit      = "Daily edit limit reached. Edit the post in Bloomary instead."
-	editHint       = "Reply to the post preview with a voice note or text: say what to change."
 	editHowTo      = "Reply to this message with a voice note or text and say what to change."
 	plannedNone    = "No scheduled posts. Drafts are not scheduled yet: open them in Bloomary → Drafts."
 	plannedHeader  = "Scheduled posts (Cyprus time):"

@@ -11,8 +11,10 @@ var (
 	ErrDailyLimit    = errors.New("daily Telegram message limit for this member reached")
 	ErrNotScheduled  = errors.New("schedule the draft with schedule_draft before calling notify_scheduled")
 	ErrNotLinked     = errors.New("the member has not linked Telegram yet (Bloomary → Settings → Telegram)")
-	ErrUnknownKind   = errors.New(`kind must be "comment"`)
+	ErrUnknownKind   = errors.New(`kind must be "comment" or "trend"`)
 	ErrInvalidTarget = errors.New("target_url must be an https URL of a LinkedIn post (linkedin.com)")
+	ErrInvalidSource = errors.New("target_url of a trend must be an https URL of the story's source")
+	ErrNoPostID      = errors.New("the published post has no LinkedIn ID")
 	ErrEditApplied   = errors.New("this edit request is already applied")
 )
 
@@ -30,6 +32,10 @@ const (
 	DailyPreviewLimit = 30
 	// MaxEditRunes caps one stored edit request.
 	MaxEditRunes = 4096
+	// MaxTrendRunes caps a trend summary (two short lines).
+	MaxTrendRunes = 600
+	// MaxFirstCommentRunes caps the first comment sent to the member when their post publishes.
+	MaxFirstCommentRunes = 1000
 	// CopyTextLimit is the Bot API limit for a CopyTextButton (1-256 characters).
 	CopyTextLimit = 256
 	// FeedbackWindow is how far back list_feedback looks when no since is given.
@@ -77,7 +83,13 @@ type EditRequest struct {
 	Source    string
 }
 
-// Suggestion is a comment idea sent to the member's Telegram, with the member's rating and posted flag.
+const (
+	KindComment = "comment"
+	// KindTrend is a news story sent to the member; their reply to it becomes an insight with the story as context.
+	KindTrend = "trend"
+)
+
+// Suggestion is a comment idea or a trend sent to the member's Telegram, with the member's rating and posted flag.
 type Suggestion struct {
 	CreatedAt time.Time
 	RatedAt   *time.Time
@@ -89,6 +101,8 @@ type Suggestion struct {
 	Text      string
 	Context   string
 	Rating    int
+	// MessageID is the Telegram message of the suggestion; a reply to a trend message becomes an insight.
+	MessageID int64
 }
 
 type SuggestionInput struct {

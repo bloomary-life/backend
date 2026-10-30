@@ -2,6 +2,7 @@ package v0
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -328,4 +329,59 @@ func TestMCPSendSuggestionAcceptsLinkedInPostsOnly(t *testing.T) {
 		result := callMCPTool(t, svc, []string{"insights:write"}, "send_suggestion", map[string]any{"kind": "comment", "target_url": target, "text": "Short comment"})
 		require.True(t, result.Result.IsError, target)
 	}
+}
+
+func TestMCPSendSuggestionSendsTrendFromAnyHTTPSSource(t *testing.T) {
+	// Verifies: BE-023
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().CountSuggestionsSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
+	reviews.EXPECT().CreateSuggestion(mock.Anything, mock.Anything).Return(nil)
+	reviews.EXPECT().SetSuggestionMessage(mock.Anything, "member-1", mock.Anything, int64(5)).Return(nil)
+	notifier := telegramMocks.NewMockNotifier(t)
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return m.Buttons[0][0] == telegramDomain.Button{Text: "Open source", URL: "https://www.sec.gov/x"}
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 5}, nil)
+	send, err := stories.NewSendSuggestion(paidAccess(t), reviews, notifier)
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{sendSuggestionStory: send})
+
+	result := callMCPTool(t, svc, []string{"insights:write"}, "send_suggestion", map[string]any{"kind": "trend", "target_url": "https://www.sec.gov/x", "text": "Tesla filed its 10-Q.\nDeliveries fell."})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+}
+
+func TestMCPListInsightsIncludesTrendContext(t *testing.T) {
+	// Verifies: BE-023
+	insights := insightMocks.NewMockRepository(t)
+	insights.EXPECT().List(mock.Anything, mock.Anything).Return([]insightDomain.Insight{{ID: "i-1", Text: "My take", Source: insightDomain.SourceVoice,
+		CreatedAt: time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC), Trend: &insightDomain.Trend{SourceURL: "https://www.anthropic.com/news/x", Summary: "Summary"}}}, nil)
+	list, err := stories.NewListMCPInsights(paidAccess(t), insights)
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{listInsightsStory: list})
+
+	result := callMCPTool(t, svc, []string{"insights:read"}, "list_insights", map[string]any{})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+	require.Contains(t, string(result.Result.StructuredContent), `"trend":{"sourceUrl":"https://www.anthropic.com/news/x","summary":"Summary"}`)
+}
+
+type fakeFirstComments struct{ saved map[string]string }
+
+func (f *fakeFirstComments) Save(_ context.Context, memberID, draftID, text string) error {
+	f.saved[memberID+"/"+draftID] = text
+	return nil
+}
+
+func TestMCPScheduleDraftStoresFirstComment(t *testing.T) {
+	// Verifies: BE-024
+	schedules := scheduleMocks.NewMockStory(t)
+	schedules.EXPECT().Schedule(mock.Anything, mock.Anything).Return(scheduledDomain.Post{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC)}, nil)
+	comments := &fakeFirstComments{saved: map[string]string{}}
+	svc := newMCPTestService(t, &service{scheduledPostStory: schedules, firstCommentStory: comments})
+
+	result := callMCPTool(t, svc, []string{"drafts:write"}, "schedule_draft", map[string]any{"draft_id": "draft-1", "publish_at": "2026-11-03T10:00:00+02:00",
+		"first_comment": "Book a call: https://lumen.observer/call/katerina"})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+	require.Equal(t, "Book a call: https://lumen.observer/call/katerina", comments.saved["member-1/draft-1"])
 }

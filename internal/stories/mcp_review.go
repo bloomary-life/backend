@@ -255,16 +255,24 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	if _, err := requireMCPPaid(ctx, s.access, in.MemberID); err != nil {
 		return reviewDomain.Suggestion{}, err
 	}
-	if in.Kind != "comment" {
+	if in.Kind != reviewDomain.KindComment && in.Kind != reviewDomain.KindTrend {
 		return reviewDomain.Suggestion{}, reviewDomain.ErrUnknownKind
 	}
+	// Comments target LinkedIn posts only; a trend links to its source, which can be any https site.
 	target, err := url.Parse(strings.TrimSpace(in.TargetURL))
-	if err != nil || target.Scheme != "https" || (target.Host != "www.linkedin.com" && target.Host != "linkedin.com") || target.User != nil {
+	if in.Kind == reviewDomain.KindTrend && (err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil) {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrInvalidSource
+	}
+	if in.Kind == reviewDomain.KindComment && (err != nil || target.Scheme != "https" || (target.Host != "www.linkedin.com" && target.Host != "linkedin.com") || target.User != nil) {
 		return reviewDomain.Suggestion{}, reviewDomain.ErrInvalidTarget
 	}
+	maxText := reviewDomain.MaxSuggestionRunes
+	if in.Kind == reviewDomain.KindTrend {
+		maxText = reviewDomain.MaxTrendRunes
+	}
 	text, postContext := strings.TrimSpace(in.Text), strings.TrimSpace(in.Context)
-	if text == "" || utf8.RuneCountInString(text) > reviewDomain.MaxSuggestionRunes || utf8.RuneCountInString(postContext) > reviewDomain.MaxContextRunes {
-		return reviewDomain.Suggestion{}, fmt.Errorf("text must be 1-%d characters and context at most %d", reviewDomain.MaxSuggestionRunes, reviewDomain.MaxContextRunes)
+	if text == "" || utf8.RuneCountInString(text) > maxText || utf8.RuneCountInString(postContext) > reviewDomain.MaxContextRunes {
+		return reviewDomain.Suggestion{}, fmt.Errorf("text must be 1-%d characters and context at most %d", maxText, reviewDomain.MaxContextRunes)
 	}
 	now := time.Now().UTC()
 	count, err := s.reviews.CountSuggestionsSince(ctx, in.MemberID, now.Add(-24*time.Hour))
@@ -281,6 +289,9 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	suggestion := reviewDomain.Suggestion{ID: id, MemberID: in.MemberID, Kind: in.Kind, TargetURL: target.String(), Text: text, Context: postContext, CreatedAt: now}
 	if err := s.reviews.CreateSuggestion(ctx, suggestion); err != nil {
 		return reviewDomain.Suggestion{}, err
+	}
+	if in.Kind == reviewDomain.KindTrend {
+		return s.sendTrend(ctx, suggestion)
 	}
 	first := []telegramDomain.Button{{Text: "Open post", URL: suggestion.TargetURL}}
 	if utf8.RuneCountInString(text) <= reviewDomain.CopyTextLimit {
@@ -303,6 +314,26 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 		}
 		return reviewDomain.Suggestion{}, fmt.Errorf("send Telegram suggestion: %w", err)
 	}
+	return suggestion, nil
+}
+
+const trendFooter = "\n\nReply with a voice note to turn this into a post."
+
+// sendTrend sends a story with an Open source button; the message ID is kept so a reply becomes an insight with the story.
+func (s *SendSuggestion) sendTrend(ctx context.Context, suggestion reviewDomain.Suggestion) (reviewDomain.Suggestion, error) {
+	message := telegramDomain.OutgoingMessage{Text: fitTelegram("Trend\n", suggestion.Text, "") + trendFooter,
+		Buttons: [][]telegramDomain.Button{{{Text: "Open source", URL: suggestion.TargetURL}}}}
+	sent, err := s.notifier.Notify(ctx, suggestion.MemberID, message, nil)
+	if err != nil {
+		if errors.Is(err, telegramDomain.ErrNotLinked) {
+			return reviewDomain.Suggestion{}, reviewDomain.ErrNotLinked
+		}
+		return reviewDomain.Suggestion{}, fmt.Errorf("send Telegram trend: %w", err)
+	}
+	if err := s.reviews.SetSuggestionMessage(ctx, suggestion.MemberID, suggestion.ID, sent.MessageID); err != nil {
+		return reviewDomain.Suggestion{}, err
+	}
+	suggestion.MessageID = sent.MessageID
 	return suggestion, nil
 }
 

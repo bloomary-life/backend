@@ -89,3 +89,20 @@ func TestReserveVoiceCapsAttemptsAndSecondsAtomically(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "account deletion removes voice attempts")
 }
+
+func TestInsightKeepsTrendContext(t *testing.T) {
+	// Verifies: BE-023
+	repo := newRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	trend := &insightDomain.Trend{SourceURL: "https://www.anthropic.com/news/x", Summary: "Summary"}
+	require.NoError(t, repo.Create(ctx, insightDomain.Insight{ID: "i-1", MemberID: "member-1", Text: "My take", Source: insightDomain.SourceText, CreatedAt: now, Trend: trend}))
+	require.NoError(t, repo.Create(ctx, insightDomain.Insight{ID: "i-2", MemberID: "member-1", Text: "Plain idea", Source: insightDomain.SourceText, CreatedAt: now.Add(time.Second)}))
+
+	list, err := repo.List(ctx, insightDomain.ListFilter{MemberID: "member-1", Since: now.Add(-time.Hour)})
+
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	require.Nil(t, list[0].Trend)
+	require.Equal(t, trend, list[1].Trend)
+}

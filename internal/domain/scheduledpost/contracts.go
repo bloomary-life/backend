@@ -23,3 +23,13 @@ type Story interface {
 	Cancel(context.Context, string, string) error
 	RunWorker(context.Context)
 }
+
+// PublishedHook runs after a scheduled post is published on LinkedIn (status published, LinkedInPostID set).
+type PublishedHook interface {
+	PostPublished(ctx context.Context, post Post)
+}
+
+// PublishedHooks is implemented by a Story that can run a hook after each publish; set it before RunWorker starts.
+type PublishedHooks interface {
+	OnPublished(hook PublishedHook)
+}

@@ -26,6 +26,14 @@ type Repository interface {
 	MarkSuggestionPosted(ctx context.Context, memberID, id string, at time.Time) (Suggestion, error)
 	ListSuggestions(ctx context.Context, memberID string, since time.Time) ([]Suggestion, error)
 	CountSuggestionsSince(ctx context.Context, memberID string, since time.Time) (int, error)
+	SetSuggestionMessage(ctx context.Context, memberID, id string, messageID int64) error
+	SuggestionByID(ctx context.Context, memberID, id string) (Suggestion, error)
+	// SuggestionByMessage finds the suggestion sent as Telegram message messageID; ErrNotFound when none.
+	SuggestionByMessage(ctx context.Context, memberID string, messageID int64) (Suggestion, error)
+	// SaveFirstComment stores (or replaces) the comment to send the member when the draft's post publishes.
+	SaveFirstComment(ctx context.Context, memberID, draftID, text string, at time.Time) error
+	// FirstComment returns the draft's first comment; ErrNotFound when none.
+	FirstComment(ctx context.Context, memberID, draftID string) (string, error)
 	DeleteByMemberID(ctx context.Context, memberID string) error
 }
 
@@ -40,6 +48,11 @@ type NotifyScheduledStory interface {
 type EditRequestsStory interface {
 	List(ctx context.Context, memberID string, unappliedOnly bool) ([]EditRequest, error)
 	MarkApplied(ctx context.Context, memberID, id string) (EditRequest, error)
+}
+
+// FirstCommentStory stores the first comment for a scheduled draft (links allowed: it never goes into the post).
+type FirstCommentStory interface {
+	Save(ctx context.Context, memberID, draftID, text string) error
 }
 
 type SendSuggestionStory interface {

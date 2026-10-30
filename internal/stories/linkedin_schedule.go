@@ -29,6 +29,14 @@ type linkedInScheduleStory struct {
 	interval      time.Duration
 	maxAhead      time.Duration
 	maxAheadDays  int
+	published     scheduleDomain.PublishedHook
+}
+
+var _ scheduleDomain.PublishedHooks = (*linkedInScheduleStory)(nil)
+
+// OnPublished sets the hook run after each published post (e.g. the first comment); call it before RunWorker.
+func (s *linkedInScheduleStory) OnPublished(hook scheduleDomain.PublishedHook) {
+	s.published = hook
 }
 
 const scheduleMinAhead = 5 * time.Minute
@@ -150,7 +158,10 @@ func (s *linkedInScheduleStory) publishOne(ctx context.Context) bool {
 		_ = s.update(ctx, job, scheduleDomain.NeedsReview, result.PostID, "Post published; draft status needs reconciliation.")
 		return true
 	}
-	_ = s.update(ctx, job, scheduleDomain.Published, result.PostID, "")
+	if err := s.update(ctx, job, scheduleDomain.Published, result.PostID, ""); err == nil && s.published != nil {
+		job.Status, job.LinkedInPostID = scheduleDomain.Published, result.PostID
+		s.published.PostPublished(ctx, job)
+	}
 	return true
 }
 

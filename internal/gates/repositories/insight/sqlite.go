@@ -32,6 +32,18 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 		return nil, fmt.Errorf("index member_insights: %w", err)
 	}
 
+	for _, column := range []string{"trend_source_url", "trend_summary"} {
+		var exists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('member_insights') WHERE name=?`, column).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("read member_insights columns: %w", err)
+		}
+		if exists == 0 {
+			if _, err := db.Exec(`ALTER TABLE member_insights ADD COLUMN ` + column + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+				return nil, fmt.Errorf("add member_insights.%s: %w", column, err)
+			}
+		}
+	}
+
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS member_voice_attempts (member_id TEXT NOT NULL, seconds INTEGER NOT NULL, created_at TEXT NOT NULL)`)
 	if err != nil {
 		return nil, fmt.Errorf("create member_voice_attempts: %w", err)
@@ -46,8 +58,12 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 }
 
 func (r *SQLiteRepository) Create(ctx context.Context, in insightDomain.Insight) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO member_insights(id,member_id,body,source,created_at) VALUES(?,?,?,?,?)`,
-		in.ID, in.MemberID, in.Text, string(in.Source), in.CreatedAt.UTC().Format(time.RFC3339Nano))
+	var trend insightDomain.Trend
+	if in.Trend != nil {
+		trend = *in.Trend
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO member_insights(id,member_id,body,source,created_at,trend_source_url,trend_summary) VALUES(?,?,?,?,?,?,?)`,
+		in.ID, in.MemberID, in.Text, string(in.Source), in.CreatedAt.UTC().Format(time.RFC3339Nano), trend.SourceURL, trend.Summary)
 	if err != nil {
 		return fmt.Errorf("insert insight member_id=%q: %w", in.MemberID, err)
 	}
@@ -56,7 +72,7 @@ func (r *SQLiteRepository) Create(ctx context.Context, in insightDomain.Insight)
 }
 
 func (r *SQLiteRepository) List(ctx context.Context, filter insightDomain.ListFilter) ([]insightDomain.Insight, error) {
-	query := `SELECT id,member_id,body,source,created_at,COALESCE(used_at,''),COALESCE(draft_id,'') FROM member_insights WHERE member_id=? AND created_at>=?`
+	query := `SELECT id,member_id,body,source,created_at,COALESCE(used_at,''),COALESCE(draft_id,''),trend_source_url,trend_summary FROM member_insights WHERE member_id=? AND created_at>=?`
 	if filter.UnusedOnly {
 		query += ` AND used_at IS NULL`
 	}
@@ -87,7 +103,7 @@ func (r *SQLiteRepository) List(ctx context.Context, filter insightDomain.ListFi
 
 func (r *SQLiteRepository) MarkUsed(ctx context.Context, memberID, insightID, draftID string, at time.Time) (insightDomain.Insight, error) {
 	in, err := scan(r.db.QueryRowContext(ctx, `UPDATE member_insights SET used_at=?,draft_id=? WHERE member_id=? AND id=?
-		RETURNING id,member_id,body,source,created_at,COALESCE(used_at,''),COALESCE(draft_id,'')`,
+		RETURNING id,member_id,body,source,created_at,COALESCE(used_at,''),COALESCE(draft_id,''),trend_source_url,trend_summary`,
 		at.UTC().Format(time.RFC3339Nano), draftID, memberID, insightID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return insightDomain.Insight{}, insightDomain.ErrNotFound
@@ -138,9 +154,13 @@ type scanner interface{ Scan(...any) error }
 
 func scan(row scanner) (insightDomain.Insight, error) {
 	var in insightDomain.Insight
-	var source, createdAt, usedAt string
-	if err := row.Scan(&in.ID, &in.MemberID, &in.Text, &source, &createdAt, &usedAt, &in.DraftID); err != nil {
+	var source, createdAt, usedAt, trendURL, trendSummary string
+	if err := row.Scan(&in.ID, &in.MemberID, &in.Text, &source, &createdAt, &usedAt, &in.DraftID, &trendURL, &trendSummary); err != nil {
 		return insightDomain.Insight{}, err
+	}
+
+	if trendURL != "" {
+		in.Trend = &insightDomain.Trend{SourceURL: trendURL, Summary: trendSummary}
 	}
 
 	in.Source = insightDomain.Source(source)

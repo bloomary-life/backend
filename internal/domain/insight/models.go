@@ -37,6 +37,14 @@ type Insight struct {
 	Text      string
 	Source    Source
 	DraftID   string
+	// Trend is set when the insight is the member's reply to a trend the AI app sent them.
+	Trend *Trend
+}
+
+// Trend is the story a trend message pointed to: its source and the summary the member saw.
+type Trend struct {
+	SourceURL string
+	Summary   string
 }
 
 type ListFilter struct {

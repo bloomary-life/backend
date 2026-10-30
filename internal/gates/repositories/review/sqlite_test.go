@@ -128,3 +128,30 @@ func TestNewSQLiteRepositoryAddsMessageIDOnce(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('scheduled_post_notices') WHERE name='message_id'`).Scan(&columns))
 	require.Equal(t, 1, columns)
 }
+
+func TestTrendSuggestionIsFoundByMessageAndFirstCommentIsReplaced(t *testing.T) {
+	// Verifies: BE-023
+	repo := newRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	require.NoError(t, repo.CreateSuggestion(ctx, reviewDomain.Suggestion{ID: "s-1", MemberID: "member-1", Kind: reviewDomain.KindTrend, TargetURL: "https://www.anthropic.com/news/x", Text: "Summary", CreatedAt: now}))
+	require.NoError(t, repo.SetSuggestionMessage(ctx, "member-1", "s-1", 70))
+
+	byMessage, err := repo.SuggestionByMessage(ctx, "member-1", 70)
+	require.NoError(t, err)
+	require.Equal(t, "s-1", byMessage.ID)
+	require.Equal(t, int64(70), byMessage.MessageID)
+	byID, err := repo.SuggestionByID(ctx, "member-1", "s-1")
+	require.NoError(t, err)
+	require.Equal(t, reviewDomain.KindTrend, byID.Kind)
+
+	require.NoError(t, repo.SaveFirstComment(ctx, "member-1", "draft-1", "first", now))
+	require.NoError(t, repo.SaveFirstComment(ctx, "member-1", "draft-1", "second", now))
+	comment, err := repo.FirstComment(ctx, "member-1", "draft-1")
+	require.NoError(t, err)
+	require.Equal(t, "second", comment)
+
+	require.NoError(t, repo.DeleteByMemberID(ctx, "member-1"))
+	_, err = repo.FirstComment(ctx, "member-1", "draft-1")
+	require.ErrorIs(t, err, reviewDomain.ErrNotFound)
+}

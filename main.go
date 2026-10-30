@@ -26,6 +26,7 @@ import (
 	recaptchaDomain "bloomary-api/internal/domain/recaptcha"
 	resendDomain "bloomary-api/internal/domain/resend"
 	reviewDomain "bloomary-api/internal/domain/review"
+	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
 	telegramDomain "bloomary-api/internal/domain/telegram"
 	apnsGate "bloomary-api/internal/gates/apns"
 	appleiapGate "bloomary-api/internal/gates/appleiap"
@@ -499,6 +500,7 @@ func newApplicationStories(
 	var telegramLink telegramDomain.LinkStory
 	var notifyScheduled reviewDomain.NotifyScheduledStory
 	var sendSuggestion reviewDomain.SendSuggestionStory
+	var firstComments reviewDomain.FirstCommentStory
 	editRequests, err := stories.NewEditRequests(access, store.reviewRepo)
 	if err != nil {
 		return v0.ApplicationStories{}, err
@@ -525,6 +527,18 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
+		trendReplies, err := stories.NewTrendReplies(store.reviewRepo, store.insightRepo)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		comments, err := stories.NewFirstComments(store.reviewRepo, notifier)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		firstComments = comments
+		if hooks, ok := schedule.(scheduledDomain.PublishedHooks); ok {
+			hooks.OnPublished(comments)
+		}
 		sendSuggestion, err = stories.NewSendSuggestion(access, store.reviewRepo, notifier)
 		if err != nil {
 			return v0.ApplicationStories{}, err
@@ -538,14 +552,14 @@ func newApplicationStories(
 			return v0.ApplicationStories{}, err
 		}
 		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, stories.TelegramBotHandlers{
-			Replies: editReplies, Callbacks: []telegramDomain.CallbackHandler{skips, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
+			Replies: []telegramDomain.ReplyHandler{editReplies, trendReplies}, Callbacks: []telegramDomain.CallbackHandler{skips, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
 	}
 	return v0.ApplicationStories{
 		TelegramBot: telegramBot, TelegramLink: telegramLink, NotifyScheduled: notifyScheduled, SendSuggestion: sendSuggestion,
-		ListFeedback: listFeedback, EditRequests: editRequests,
+		ListFeedback: listFeedback, EditRequests: editRequests, FirstComments: firstComments,
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
 		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,

@@ -3,8 +3,10 @@ package v0
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	draftDomain "bloomary-api/internal/domain/draft"
 	insightDomain "bloomary-api/internal/domain/insight"
@@ -20,6 +22,13 @@ type mcpInsight struct {
 	CreatedAt string `json:"createdAt"`
 	UsedAt    string `json:"usedAt,omitempty"`
 	DraftID   string `json:"draftId,omitempty"`
+	// Trend is set when the insight is the member's reply to a trend message: the story it answers.
+	Trend *mcpTrend `json:"trend,omitempty"`
+}
+
+type mcpTrend struct {
+	SourceURL string `json:"sourceUrl"`
+	Summary   string `json:"summary"`
 }
 
 type mcpInsightList struct {
@@ -41,6 +50,8 @@ type mcpAttachImageInput struct {
 type mcpScheduleDraftInput struct {
 	DraftID   string `json:"draft_id" jsonschema:"Draft to publish on LinkedIn"`
 	PublishAt string `json:"publish_at" jsonschema:"RFC 3339 time with offset, 5 minutes to 31 days ahead"`
+	// FirstComment carries what may not go into the post (links, sources); it is sent to the member when the post publishes.
+	FirstComment string `json:"first_comment,omitempty" jsonschema:"Optional plain text up to 1000 characters, links allowed (booking page, job board, sources). Sent to the member in Telegram with Copy and Open post when the post publishes, to paste as the first comment."`
 }
 
 type mcpSchedule struct {
@@ -63,9 +74,9 @@ type mcpNotice struct {
 }
 
 type mcpSendSuggestionInput struct {
-	Kind      string `json:"kind" jsonschema:"Only \"comment\" for now"`
-	TargetURL string `json:"target_url" jsonschema:"https URL of the LinkedIn post to comment on (linkedin.com)"`
-	Text      string `json:"text" jsonschema:"The comment; up to 256 characters gets a Copy button"`
+	Kind      string `json:"kind" jsonschema:"\"comment\" (a comment idea for a LinkedIn post) or \"trend\" (a news story; the member's reply to it becomes an insight with the story attached)"`
+	TargetURL string `json:"target_url" jsonschema:"comment: https URL of the LinkedIn post (linkedin.com); trend: https URL of the story's source"`
+	Text      string `json:"text" jsonschema:"comment: the comment, up to 256 characters gets a Copy button; trend: a two-line summary, up to 600 characters"`
 	Context   string `json:"context,omitempty" jsonschema:"One line on why this post and comment"`
 }
 
@@ -192,7 +203,7 @@ func (s *service) addMCPContentTools(server *mcp.Server) {
 }
 
 func (s *service) addMCPReviewTools(server *mcp.Server) {
-	mcp.AddTool(server, mcpOAuthTool("schedule_draft", "Schedule a draft for LinkedIn. It publishes at publish_at unless the member taps Skip; call notify_scheduled next.", "drafts:write"),
+	mcp.AddTool(server, mcpOAuthTool("schedule_draft", "Schedule a draft for LinkedIn. It publishes at publish_at unless the member taps Skip; call notify_scheduled next. Put links and sources in first_comment, never in the post.", "drafts:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpScheduleDraftInput) (*mcp.CallToolResult, mcpSchedule, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {
@@ -202,9 +213,22 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			if err != nil {
 				return nil, mcpSchedule{}, errors.New("publish_at must be an RFC 3339 time with offset")
 			}
-			post, err := s.scheduledPostStory.Schedule(ctx, scheduledDomain.CreateInput{MemberID: memberID, DraftID: draftDomain.NormalizeID(input.DraftID), ScheduledAt: publishAt.UTC()})
+			firstComment := strings.TrimSpace(input.FirstComment)
+			if firstComment != "" && s.firstCommentStory == nil {
+				return nil, mcpSchedule{}, errors.New("the Bloomary Telegram bot is not configured, so first_comment cannot be delivered")
+			}
+			if utf8.RuneCountInString(firstComment) > reviewDomain.MaxFirstCommentRunes {
+				return nil, mcpSchedule{}, fmt.Errorf("first_comment must be at most %d characters", reviewDomain.MaxFirstCommentRunes)
+			}
+			draftID := draftDomain.NormalizeID(input.DraftID)
+			post, err := s.scheduledPostStory.Schedule(ctx, scheduledDomain.CreateInput{MemberID: memberID, DraftID: draftID, ScheduledAt: publishAt.UTC()})
 			if err != nil {
 				return nil, mcpSchedule{}, err
+			}
+			if firstComment != "" {
+				if err := s.firstCommentStory.Save(ctx, memberID, draftID, firstComment); err != nil {
+					return nil, mcpSchedule{}, fmt.Errorf("the post is scheduled, but its first comment was not saved: %w", err)
+				}
 			}
 			return nil, toMCPSchedule(post), nil
 		})
@@ -267,7 +291,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			}
 			return nil, mcpNotice{NoticeID: notice.ID, DraftID: notice.DraftID}, nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("send_suggestion", "Send the member a comment idea in Telegram with Open post, Copy, rating 1-5 and Posted buttons. The member posts it themselves.", "insights:write"),
+	mcp.AddTool(server, mcpOAuthTool("send_suggestion", "Send the member a comment idea (kind comment: Open post, Copy, rating 1-5 and Posted; the member posts it themselves) or a news story (kind trend: Open source; a reply to it becomes an insight with the story in list_insights).", "insights:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSendSuggestionInput) (*mcp.CallToolResult, mcpSuggestionSent, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "insights:write")
 			if err != nil {
@@ -341,6 +365,9 @@ func toMCPInsight(in insightDomain.Insight) mcpInsight {
 	out := mcpInsight{InsightID: in.ID, Text: in.Text, Source: string(in.Source), CreatedAt: in.CreatedAt.UTC().Format(time.RFC3339), DraftID: in.DraftID}
 	if in.UsedAt != nil {
 		out.UsedAt = in.UsedAt.UTC().Format(time.RFC3339)
+	}
+	if in.Trend != nil {
+		out.Trend = &mcpTrend{SourceURL: in.Trend.SourceURL, Summary: in.Trend.Summary}
 	}
 	return out
 }

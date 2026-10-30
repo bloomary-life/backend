@@ -37,7 +37,7 @@ func newPostsFixture(t *testing.T) postsFixture {
 	replies, err := NewEditReplies(f.reviews, f.jobs, f.drafts)
 	require.NoError(t, err)
 	f.story, err = NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life",
-		TelegramBotHandlers{Replies: replies, Callbacks: []telegramDomain.CallbackHandler{planned}, Commands: []telegramDomain.CommandHandler{planned}})
+		TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{replies}, Callbacks: []telegramDomain.CallbackHandler{planned}, Commands: []telegramDomain.CommandHandler{planned}})
 	require.NoError(t, err)
 	f.links.EXPECT().ByTelegramUser(mock.Anything, int64(100)).Return(telegramDomain.Link{MemberID: "member-1", ChatID: 100, TelegramUserID: 100}, nil)
 	return f
@@ -100,7 +100,7 @@ func TestReplyToPreviewFromBeforeTheLinkIsNotAnEdit(t *testing.T) {
 	f := postsFixture{botFixture: newBotFixture(t), reviews: reviewMocks.NewMockRepository(t), jobs: scheduleMocks.NewMockRepository(t), drafts: draftMocks.NewMockRepository(t)}
 	replies, err := NewEditReplies(f.reviews, f.jobs, f.drafts)
 	require.NoError(t, err)
-	f.story, err = NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life", TelegramBotHandlers{Replies: replies})
+	f.story, err = NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life", TelegramBotHandlers{Replies: []telegramDomain.ReplyHandler{replies}})
 	require.NoError(t, err)
 	linkedAt := time.Now().UTC()
 	f.links.EXPECT().ByTelegramUser(mock.Anything, int64(100)).Return(telegramDomain.Link{MemberID: "member-1", ChatID: 100, TelegramUserID: 100, LinkedAt: linkedAt}, nil)
