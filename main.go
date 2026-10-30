@@ -29,6 +29,7 @@ import (
 	apnsGate "bloomary-api/internal/gates/apns"
 	appleiapGate "bloomary-api/internal/gates/appleiap"
 	deepgramGate "bloomary-api/internal/gates/deepgram"
+	imagefetchGate "bloomary-api/internal/gates/imagefetch"
 	linkedinGate "bloomary-api/internal/gates/linkedin"
 	mcpSignerGate "bloomary-api/internal/gates/mcp"
 	objectstoreGate "bloomary-api/internal/gates/objectstore"
@@ -451,8 +452,13 @@ func newApplicationStories(
 		mcpTokenVerifier = signer
 	}
 	var draftImageStory draftDomain.ImageStory
+	var attachMCPImage draftDomain.AttachMCPImageStory
 	if draftImages != nil {
 		draftImageStory, err = stories.NewDraftImages(draftImages)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		attachMCPImage, err = stories.NewAttachMCPImage(access, store.draftRepo, draftImages, imagefetchGate.New(30*time.Second))
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -495,7 +501,7 @@ func newApplicationStories(
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
 		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,
-		ListMCPInsights: listMCPInsights, MarkMCPInsightUsed: markMCPInsightUsed,
+		ListMCPInsights: listMCPInsights, MarkMCPInsightUsed: markMCPInsightUsed, AttachMCPImage: attachMCPImage,
 		AppleTransaction: appleSync, AppleNotifications: appleNotifications,
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,
 		Access: access, ScheduledPost: schedule, MCPAuthorization: mcpAuthorization, MCPTokenVerifier: mcpTokenVerifier, MCPGrants: store.mcpOAuthState,

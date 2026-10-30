@@ -8,6 +8,8 @@ import (
 
 var ErrTooManyDrafts = errors.New("too many synced drafts")
 var ErrDraftBodyTooLong = errors.New("draft body is too long")
+var ErrDraftNotEditable = errors.New("draft is published or does not exist")
+var ErrImageTooLarge = errors.New("image is too large")
 
 const (
 	ErrCodeInvalidDraft           = "invalid_draft"
@@ -55,6 +57,15 @@ type UpsertImage struct {
 	MimeType       string
 	SizeBytes      int64
 	ChecksumSHA256 string
+}
+
+// AttachImageInput carries an image as base64 data or an https URL (exactly one).
+type AttachImageInput struct {
+	MemberID   string
+	DraftID    string
+	ImageURL   string
+	DataBase64 string
+	MimeType   string
 }
 
 type PresignUploadInput struct {

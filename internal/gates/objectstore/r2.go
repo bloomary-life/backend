@@ -1,6 +1,7 @@
 package objectstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -146,6 +147,30 @@ func (s *R2ObjectStore) Copy(ctx context.Context, sourceKey, destinationKey stri
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("r2 copy object status=%d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// Put uploads data server-side; metadata keys become x-amz-meta-<key> headers.
+func (s *R2ObjectStore) Put(ctx context.Context, objectKey, contentType string, data []byte, metadata map[string]string) error {
+	headers := map[string]string{"Content-Type": contentType}
+	for key, value := range metadata {
+		headers["x-amz-meta-"+key] = value
+	}
+	req, err := s.signedRequest(ctx, http.MethodPut, objectKey, headers)
+	if err != nil {
+		return err
+	}
+	req.Body = io.NopCloser(bytes.NewReader(data))
+	req.ContentLength = int64(len(data))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("r2 put object status=%d", resp.StatusCode)
 	}
 
 	return nil

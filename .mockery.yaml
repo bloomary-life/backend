@@ -34,6 +34,7 @@ packages:
     interfaces:
       ImageStory: {}
       ObjectStore: {}
+      RemoteImageFetcher: {}
       Repository: {}
       SyncStory: {}
   bloomary-api/internal/domain/entitlement:

@@ -129,3 +129,29 @@ func TestSyncRemovesDraftImage(t *testing.T) {
 	require.Len(t, drafts, 1)
 	require.Nil(t, drafts[0].Image)
 }
+
+func TestSetImageLinksImageAndReturnsReplacedObjectKey(t *testing.T) {
+	// Verifies: BE-011
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	repo, err := NewSQLiteRepository(db)
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, repo.Init(ctx))
+	_, _, err = repo.CreateIfAbsent(ctx, "member-1", "draft-1", "Post", 50, time.Now())
+	require.NoError(t, err)
+
+	previous, err := repo.SetImage(ctx, "member-1", "draft-1", draftDomain.UpsertImage{ImageID: "img-1", ObjectKey: "key-1", MimeType: "image/png", SizeBytes: 8, ChecksumSHA256: "abc"})
+	require.NoError(t, err)
+	require.Empty(t, previous)
+	previous, err = repo.SetImage(ctx, "member-1", "draft-1", draftDomain.UpsertImage{ImageID: "img-2", ObjectKey: "key-2", MimeType: "image/jpeg", SizeBytes: 9, ChecksumSHA256: "def"})
+	require.NoError(t, err)
+	require.Equal(t, "key-1", previous)
+
+	draft, err := repo.ByID(ctx, "member-1", "draft-1")
+	require.NoError(t, err)
+	require.Equal(t, "img-2", draft.Image.ImageID)
+	require.Equal(t, "key-2", draft.Image.ObjectKey)
+}

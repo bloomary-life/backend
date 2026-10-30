@@ -29,6 +29,13 @@ type mcpListInsightsInput struct {
 	UnusedOnly bool   `json:"unused_only,omitempty" jsonschema:"Skip insights already marked used"`
 }
 
+type mcpAttachImageInput struct {
+	DraftID    string `json:"draft_id" jsonschema:"Unpublished draft to illustrate"`
+	ImageURL   string `json:"image_url,omitempty" jsonschema:"Public https URL of a JPEG, PNG or GIF (max 5 MB); or send data_base64"`
+	DataBase64 string `json:"data_base64,omitempty" jsonschema:"Standard base64 image bytes; or send image_url"`
+	MimeType   string `json:"mime_type,omitempty" jsonschema:"image/jpeg, image/png or image/gif; checked against the bytes"`
+}
+
 type mcpMarkInsightUsedInput struct {
 	InsightID string `json:"insight_id" jsonschema:"Insight ID from list_insights"`
 	DraftID   string `json:"draft_id" jsonschema:"Draft written from this insight"`
@@ -70,6 +77,22 @@ func (s *service) addMCPContentTools(server *mcp.Server) {
 				return nil, mcpInsight{}, err
 			}
 			return nil, toMCPInsight(in), nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("attach_image", "Attach one image to an unpublished draft, replacing its current image. LinkedIn posts it with the text.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpAttachImageInput) (*mcp.CallToolResult, mcpDraft, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
+			if err != nil {
+				return nil, mcpDraft{}, err
+			}
+			if s.attachImageStory == nil {
+				return nil, mcpDraft{}, errors.New("draft image storage is not configured")
+			}
+			draft, err := s.attachImageStory.Attach(ctx, draftDomain.AttachImageInput{MemberID: memberID, DraftID: draftDomain.NormalizeID(input.DraftID),
+				ImageURL: input.ImageURL, DataBase64: input.DataBase64, MimeType: input.MimeType})
+			if err != nil {
+				return nil, mcpDraft{}, err
+			}
+			return nil, toMCPDraft(draft), nil
 		})
 }
 

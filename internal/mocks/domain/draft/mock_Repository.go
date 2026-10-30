@@ -404,6 +404,84 @@ func (_c *MockRepository_MarkPublished_Call) RunAndReturn(run func(ctx context.C
 	return _c
 }
 
+// SetImage provides a mock function for the type MockRepository
+func (_mock *MockRepository) SetImage(ctx context.Context, memberID string, draftID string, image draft.UpsertImage) (string, error) {
+	ret := _mock.Called(ctx, memberID, draftID, image)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetImage")
+	}
+
+	var r0 string
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, draft.UpsertImage) (string, error)); ok {
+		return returnFunc(ctx, memberID, draftID, image)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, draft.UpsertImage) string); ok {
+		r0 = returnFunc(ctx, memberID, draftID, image)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, draft.UpsertImage) error); ok {
+		r1 = returnFunc(ctx, memberID, draftID, image)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRepository_SetImage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetImage'
+type MockRepository_SetImage_Call struct {
+	*mock.Call
+}
+
+// SetImage is a helper method to define mock.On call
+//   - ctx context.Context
+//   - memberID string
+//   - draftID string
+//   - image draft.UpsertImage
+func (_e *MockRepository_Expecter) SetImage(ctx any, memberID any, draftID any, image any) *MockRepository_SetImage_Call {
+	return &MockRepository_SetImage_Call{Call: _e.mock.On("SetImage", ctx, memberID, draftID, image)}
+}
+
+func (_c *MockRepository_SetImage_Call) Run(run func(ctx context.Context, memberID string, draftID string, image draft.UpsertImage)) *MockRepository_SetImage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 draft.UpsertImage
+		if args[3] != nil {
+			arg3 = args[3].(draft.UpsertImage)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_SetImage_Call) Return(s string, err error) *MockRepository_SetImage_Call {
+	_c.Call.Return(s, err)
+	return _c
+}
+
+func (_c *MockRepository_SetImage_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string, image draft.UpsertImage) (string, error)) *MockRepository_SetImage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Sync provides a mock function for the type MockRepository
 func (_mock *MockRepository) Sync(ctx context.Context, memberID string, upserts []draft.Upsert, deletes []string, maxActive int) ([]draft.Draft, error) {
 	ret := _mock.Called(ctx, memberID, upserts, deletes, maxActive)

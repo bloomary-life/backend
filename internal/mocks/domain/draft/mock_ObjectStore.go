@@ -419,6 +419,81 @@ func (_c *MockObjectStore_PresignPut_Call) RunAndReturn(run func(ctx context.Con
 	return _c
 }
 
+// Put provides a mock function for the type MockObjectStore
+func (_mock *MockObjectStore) Put(ctx context.Context, objectKey string, contentType string, data []byte, metadata map[string]string) error {
+	ret := _mock.Called(ctx, objectKey, contentType, data, metadata)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Put")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, []byte, map[string]string) error); ok {
+		r0 = returnFunc(ctx, objectKey, contentType, data, metadata)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockObjectStore_Put_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Put'
+type MockObjectStore_Put_Call struct {
+	*mock.Call
+}
+
+// Put is a helper method to define mock.On call
+//   - ctx context.Context
+//   - objectKey string
+//   - contentType string
+//   - data []byte
+//   - metadata map[string]string
+func (_e *MockObjectStore_Expecter) Put(ctx any, objectKey any, contentType any, data any, metadata any) *MockObjectStore_Put_Call {
+	return &MockObjectStore_Put_Call{Call: _e.mock.On("Put", ctx, objectKey, contentType, data, metadata)}
+}
+
+func (_c *MockObjectStore_Put_Call) Run(run func(ctx context.Context, objectKey string, contentType string, data []byte, metadata map[string]string)) *MockObjectStore_Put_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 []byte
+		if args[3] != nil {
+			arg3 = args[3].([]byte)
+		}
+		var arg4 map[string]string
+		if args[4] != nil {
+			arg4 = args[4].(map[string]string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *MockObjectStore_Put_Call) Return(err error) *MockObjectStore_Put_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockObjectStore_Put_Call) RunAndReturn(run func(ctx context.Context, objectKey string, contentType string, data []byte, metadata map[string]string) error) *MockObjectStore_Put_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Read provides a mock function for the type MockObjectStore
 func (_mock *MockObjectStore) Read(ctx context.Context, objectKey string) ([]byte, error) {
 	ret := _mock.Called(ctx, objectKey)

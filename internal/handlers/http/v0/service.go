@@ -85,6 +85,7 @@ type service struct {
 	updateMCPDraftStory   draftDomain.UpdateMCPDraftStory
 	listInsightsStory     insightDomain.ListMCPInsightsStory
 	markInsightUsedStory  insightDomain.MarkMCPInsightUsedStory
+	attachImageStory      draftDomain.AttachMCPImageStory
 	mcpAuthorizationStory mcpDomain.AuthorizationStory
 	mcpTokenVerifier      mcpDomain.AccessTokenVerifier
 	mcpGrants             mcpDomain.GrantStore
@@ -139,6 +140,8 @@ type ApplicationStories struct {
 	UpdateMCPDraft     draftDomain.UpdateMCPDraftStory
 	ListMCPInsights    insightDomain.ListMCPInsightsStory
 	MarkMCPInsightUsed insightDomain.MarkMCPInsightUsedStory
+	// AttachMCPImage stays nil while R2 draft image storage is not configured.
+	AttachMCPImage     draftDomain.AttachMCPImageStory
 	DraftImages        draftDomain.ImageStory
 	AppleTransaction   appleiapDomain.TransactionSyncStory
 	AppleNotifications appleiapDomain.NotificationStory
@@ -211,6 +214,7 @@ func NewService(
 		updateMCPDraftStory:   appStories.UpdateMCPDraft,
 		listInsightsStory:     appStories.ListMCPInsights,
 		markInsightUsedStory:  appStories.MarkMCPInsightUsed,
+		attachImageStory:      appStories.AttachMCPImage,
 		mcpAuthorizationStory: appStories.MCPAuthorization,
 		mcpTokenVerifier:      appStories.MCPTokenVerifier,
 		mcpGrants:             appStories.MCPGrants,

@@ -15,6 +15,8 @@ type Repository interface {
 	CreateIfAbsent(ctx context.Context, memberID, draftID, body string, maxActive int, updatedAt time.Time) (Draft, bool, error)
 	UpdateUnpublished(ctx context.Context, memberID, draftID, body string, updatedAt time.Time) (Draft, error)
 	MarkPublished(ctx context.Context, memberID, draftID string) error
+	// SetImage links a stored object to an unpublished draft and returns the object key it replaced.
+	SetImage(ctx context.Context, memberID, draftID string, image UpsertImage) (string, error)
 	DeleteByMemberID(ctx context.Context, memberID string) error
 }
 
@@ -43,7 +45,18 @@ type UpdateMCPDraftStory interface {
 	Update(ctx context.Context, memberID, draftID, body string) (Draft, error)
 }
 
+// AttachMCPImageStory stores an image the member's AI app sends and links it to an unpublished draft.
+type AttachMCPImageStory interface {
+	Attach(ctx context.Context, input AttachImageInput) (Draft, error)
+}
+
+// RemoteImageFetcher downloads a public https image, refusing private network addresses.
+type RemoteImageFetcher interface {
+	Fetch(ctx context.Context, url string, maxBytes int64) ([]byte, error)
+}
+
 type ObjectStore interface {
+	Put(ctx context.Context, objectKey, contentType string, data []byte, metadata map[string]string) error
 	StagingObjectKey(memberID, draftID, imageID string) string
 	LinkedObjectKey(memberID, draftID, imageID string) string
 	Stat(ctx context.Context, objectKey string) (ObjectMetadata, error)

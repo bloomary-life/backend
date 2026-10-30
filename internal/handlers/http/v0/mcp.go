@@ -35,11 +35,18 @@ type mcpTokenClaims struct {
 }
 
 type mcpDraft struct {
-	DraftID   string `json:"draftId"`
-	Body      string `json:"body"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	Image     *mcpDraftImage `json:"image,omitempty"`
+	DraftID   string         `json:"draftId"`
+	Body      string         `json:"body"`
+	Status    string         `json:"status"`
+	CreatedAt string         `json:"createdAt"`
+	UpdatedAt string         `json:"updatedAt"`
+}
+
+type mcpDraftImage struct {
+	ImageID   string `json:"imageId"`
+	MimeType  string `json:"mimeType"`
+	SizeBytes int64  `json:"sizeBytes"`
 }
 
 type mcpDraftIDInput struct {
@@ -136,10 +143,14 @@ func (s *service) mcpMemberWithScope(ctx context.Context, scope string) (string,
 }
 
 func toMCPDraft(draft draftDomain.Draft) mcpDraft {
-	return mcpDraft{
+	out := mcpDraft{
 		DraftID: draft.DraftID, Body: draft.Body, Status: draft.Status,
 		CreatedAt: draft.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: draft.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
+	if draft.Image != nil {
+		out.Image = &mcpDraftImage{ImageID: draft.Image.ImageID, MimeType: draft.Image.MimeType, SizeBytes: draft.Image.SizeBytes}
+	}
+	return out
 }
 
 func (s *service) signMCPToken(claims mcpTokenClaims) (string, error) {

@@ -2,6 +2,7 @@ package v0
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -111,4 +112,28 @@ func TestMCPMarkInsightUsedLinksDraft(t *testing.T) {
 
 func draftDomainDraft(id string) draftDomain.Draft {
 	return draftDomain.Draft{DraftID: id, Body: "Body", Status: "draft"}
+}
+
+func TestMCPAttachImageStoresBase64Image(t *testing.T) {
+	// Verifies: BE-011
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomainDraft("draft-1"), nil).Once()
+	objects := draftMocks.NewMockObjectStore(t)
+	objects.EXPECT().MaxUploadBytes().Return(5 << 20)
+	objects.EXPECT().LinkedObjectKey("member-1", "draft-1", mock.Anything).Return("linked-key")
+	objects.EXPECT().Put(mock.Anything, "linked-key", "image/png", png, mock.Anything).Return(nil)
+	drafts.EXPECT().SetImage(mock.Anything, "member-1", "draft-1", mock.Anything).Return("", nil)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").
+		Return(draftDomain.Draft{DraftID: "draft-1", Status: "draft", Image: &draftDomain.DraftImage{ImageID: "img-1", MimeType: "image/png", SizeBytes: 16}}, nil).Once()
+	attach, err := stories.NewAttachMCPImage(paidAccess(t), drafts, objects, draftMocks.NewMockRemoteImageFetcher(t))
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{attachImageStory: attach})
+
+	result := callMCPTool(t, svc, []string{"drafts:write"}, "attach_image", map[string]any{"draft_id": "draft-1", "data_base64": base64.StdEncoding.EncodeToString(png)})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+	var out mcpDraft
+	require.NoError(t, json.Unmarshal(result.Result.StructuredContent, &out))
+	require.Equal(t, &mcpDraftImage{ImageID: "img-1", MimeType: "image/png", SizeBytes: 16}, out.Image)
 }

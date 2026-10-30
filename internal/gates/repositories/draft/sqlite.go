@@ -3,6 +3,7 @@ package draft
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -138,6 +139,34 @@ func (r *SQLiteRepository) UpdateUnpublished(ctx context.Context, memberID, draf
 		return r.ByID(ctx, memberID, draftID)
 	}
 	return r.ByID(ctx, memberID, draftID)
+}
+
+func (r *SQLiteRepository) SetImage(ctx context.Context, memberID, draftID string, image draftDomain.UpsertImage) (string, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin set draft image member_id=%q draft_id=%q: %w", memberID, draftID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE synced_drafts SET updated_at=? WHERE member_id=? AND draft_id=? AND status='draft'`,
+		time.Now().UTC().Format(time.RFC3339Nano), memberID, draftID)
+	if err != nil {
+		return "", fmt.Errorf("touch draft for image member_id=%q draft_id=%q: %w", memberID, draftID, err)
+	}
+	if updated, err := result.RowsAffected(); err != nil || updated == 0 {
+		return "", draftDomain.ErrDraftNotEditable
+	}
+	var previous sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT object_key FROM synced_draft_images WHERE member_id=? AND draft_id=?`, memberID, draftID).Scan(&previous)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("read previous draft image member_id=%q draft_id=%q: %w", memberID, draftID, err)
+	}
+	if err := upsertDraftImage(ctx, tx, memberID, draftID, image); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit set draft image member_id=%q draft_id=%q: %w", memberID, draftID, err)
+	}
+	return previous.String, nil
 }
 
 func (r *SQLiteRepository) MarkPublished(ctx context.Context, memberID, draftID string) error {
