@@ -79,7 +79,7 @@ type Config struct {
 	// It is not the ops-alert bot (BLOOMARY_BOT_TOKEN).
 	UserBotToken         string `env:"BLOOMARY_APP_TOKEN"`
 	UserBotWebhookSecret string `env:"BLOOMARY_USER_BOT_WEBHOOK_SECRET"`
-	UserBotUsername      string `env:"BLOOMARY_USER_BOT_USERNAME" envDefault:"Bloomary_app"`
+	UserBotUsername      string `env:"BLOOMARY_USER_BOT_USERNAME" envDefault:"bloomary_app"`
 	DeepgramAPIKey       string `env:"DEEPGRAM_API_KEY"`
 }
 
