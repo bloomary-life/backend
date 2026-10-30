@@ -27,106 +27,55 @@ func proAccess(t *testing.T) *entitlementMocks.MockAccessStory {
 	return access
 }
 
-func TestScheduleMCPDraftIsHeldForApproval(t *testing.T) {
-	// Verifies: BE-013
-	publishAt := time.Now().Add(24 * time.Hour).UTC()
-	schedules := scheduleMocks.NewMockStory(t)
-	schedules.EXPECT().Schedule(mock.Anything, scheduledDomain.CreateInput{MemberID: "member-1", DraftID: "draft-1", ScheduledAt: publishAt, NeedsApproval: true}).
-		Return(scheduledDomain.Post{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: publishAt, AwaitingApproval: true}, nil)
-	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().SupersedePending(mock.Anything, "member-1", "draft-1", mock.Anything).Return(nil)
-	story, err := NewScheduleMCPDraft(schedules, reviews)
-	require.NoError(t, err)
-
-	post, err := story.Schedule(context.Background(), "member-1", "draft-1", publishAt)
-
-	require.NoError(t, err)
-	require.True(t, post.AwaitingApproval)
-}
-
-func TestRequestApprovalSendsPreviewWithImageAndButtons(t *testing.T) {
+func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	// Verifies: BE-013
 	publishAt := time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)
 	drafts := draftMocks.NewMockRepository(t)
 	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Proof beats adjectives.", Status: "draft",
 		Image: &draftDomain.DraftImage{ObjectKey: "key-1", MimeType: "image/png"}}, nil)
 	jobs := scheduleMocks.NewMockRepository(t)
-	jobs.EXPECT().ListActive(mock.Anything, "member-1").Return([]scheduledDomain.Post{{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: publishAt, AwaitingApproval: true}}, nil)
+	jobs.EXPECT().ListActive(mock.Anything, "member-1").Return([]scheduledDomain.Post{{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: publishAt}}, nil)
 	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().CountApprovalsSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
-	reviews.EXPECT().SupersedePending(mock.Anything, "member-1", "draft-1", mock.Anything).Return(nil)
-	var created reviewDomain.Approval
-	reviews.EXPECT().CreateApproval(mock.Anything, mock.Anything).Run(func(_ context.Context, a reviewDomain.Approval) { created = a }).Return(nil)
+	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
+	var created reviewDomain.Notice
+	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Run(func(_ context.Context, n reviewDomain.Notice) { created = n }).Return(nil)
 	objects := draftMocks.NewMockObjectStore(t)
 	objects.EXPECT().Read(mock.Anything, "key-1").Return([]byte("png"), nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.Contains(m.Text, "Scheduled: Tue 3 Nov 2026, 09:00 UTC") && strings.Contains(m.Text, "Note: From your voice note") &&
-			strings.HasSuffix(m.Text, "Proof beats adjectives.") &&
-			m.Buttons[0][0].CallbackData == "ap:"+created.ID+":y" && m.Buttons[0][1].CallbackData == "ap:"+created.ID+":n" &&
-			m.Buttons[1][0].URL == "https://platform.bloomary.life/editor?draft=draft-1"
+		return strings.Contains(m.Text, "Scheduled: Tue 3 Nov 2026, 09:00 UTC") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
+			strings.HasSuffix(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 1 &&
+			m.Buttons[0][0].URL == "https://platform.bloomary.life/editor?draft=draft-1" && m.Buttons[0][1].CallbackData == "sk:"+created.ID
 	}), &telegramDomain.Photo{Data: []byte("png"), MimeType: "image/png", Caption: "Image for the post below"}).Return(10, nil)
-	story, err := NewRequestApproval(proAccess(t), drafts, jobs, reviews, objects, notifier, "https://platform.bloomary.life")
+	story, err := NewNotifyScheduled(proAccess(t), drafts, jobs, reviews, objects, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
-	approval, err := story.Request(context.Background(), "member-1", "draft-1", "From your voice note")
+	notice, err := story.Notify(context.Background(), "member-1", "draft-1", "Sources: Eurostat 2025")
 
 	require.NoError(t, err)
-	require.Equal(t, "job-1", approval.ScheduleID)
-	require.Equal(t, "Proof beats adjectives.", approval.ProposedText)
-	require.Equal(t, reviewDomain.ApprovalPending, created.Status)
+	require.Equal(t, "job-1", notice.ScheduleID)
+	require.Equal(t, "Proof beats adjectives.", notice.ProposedText)
+	require.Equal(t, reviewDomain.NoticeSent, created.Status)
 }
 
-func TestApproveReleasesHeldScheduleAndSkipCancelsIt(t *testing.T) {
+func TestSkipCancelsScheduledPost(t *testing.T) {
 	// Verifies: BE-013
-	publishAt := time.Now().Add(time.Hour).UTC()
-	link := telegramDomain.Link{MemberID: "member-1", ChatID: 100}
-	approval := reviewDomain.Approval{ID: "a-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ScheduledAt: publishAt, ProposedText: "Post", Status: reviewDomain.ApprovalPending}
+	notice := reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ScheduledAt: time.Now().Add(time.Hour), ProposedText: "Post", Status: reviewDomain.NoticeSent}
 	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().NoticeByID(mock.Anything, "member-1", "n-1").Return(notice, nil)
+	reviews.EXPECT().SkipNotice(mock.Anything, "member-1", "n-1", mock.Anything).Return(notice, nil)
 	jobs := scheduleMocks.NewMockRepository(t)
-	bot := telegramMocks.NewMockGate(t)
-	callbacks, err := NewApprovalCallbacks(reviews, jobs, bot)
-	require.NoError(t, err)
-
-	reviews.EXPECT().ApprovalByID(mock.Anything, "member-1", "a-1").Return(approval, nil).Once()
-	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", Status: scheduledDomain.Pending, ScheduledAt: publishAt}, nil)
-	jobs.EXPECT().Approve(mock.Anything, "member-1", "job-1").Return(nil)
-	reviews.EXPECT().DecideApproval(mock.Anything, "member-1", "a-1", reviewDomain.ApprovalApproved, mock.Anything).Return(approval, nil)
-	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(7), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Approved: posts ") })).Return(nil)
-
-	answer, err := callbacks.HandleCallback(context.Background(), link, telegramDomain.Callback{Data: "ap:a-1:y", ChatID: 100, MessageID: 7})
-	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(answer, "Approved: posts "))
-
-	approval.ID = "a-2"
-	reviews.EXPECT().ApprovalByID(mock.Anything, "member-1", "a-2").Return(approval, nil).Once()
+	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", Status: scheduledDomain.Pending}, nil)
 	jobs.EXPECT().Cancel(mock.Anything, "member-1", "draft-1").Return(nil)
-	reviews.EXPECT().DecideApproval(mock.Anything, "member-1", "a-2", reviewDomain.ApprovalSkipped, mock.Anything).Return(approval, nil)
+	bot := telegramMocks.NewMockGate(t)
 	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(8), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Skipped:") })).Return(nil)
+	callbacks, err := NewSkipCallbacks(reviews, jobs, bot)
+	require.NoError(t, err)
 
-	answer, err = callbacks.HandleCallback(context.Background(), link, telegramDomain.Callback{Data: "ap:a-2:n", ChatID: 100, MessageID: 8})
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1", ChatID: 100}, telegramDomain.Callback{Data: "sk:n-1", ChatID: 100, MessageID: 8})
+
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(answer, "Skipped:"))
-}
-
-func TestMCPUpdateOfScheduledDraftHoldsItAgain(t *testing.T) {
-	// Verifies: BE-013
-	repository := draftMocks.NewMockRepository(t)
-	repository.EXPECT().UpdateUnpublished(mock.Anything, "member-1", "draft-1", "New text", mock.Anything).Return(draftDomain.Draft{DraftID: "draft-1", Body: "New text", Status: "draft"}, nil)
-	update, err := NewUpdateMCPDraft(proAccess(t), repository)
-	require.NoError(t, err)
-	jobs := scheduleMocks.NewMockRepository(t)
-	jobs.EXPECT().HoldForApproval(mock.Anything, "member-1", "draft-1").Return(nil)
-	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().SupersedePending(mock.Anything, "member-1", "draft-1", mock.Anything).Return(nil)
-	hold, err := NewMCPDraftChangeHold(jobs, reviews)
-	require.NoError(t, err)
-	story, err := NewHoldOnMCPUpdate(update, hold)
-	require.NoError(t, err)
-
-	_, err = story.Update(context.Background(), "member-1", "draft-1", "New text")
-
-	require.NoError(t, err)
 }
 
 func TestSendSuggestionSendsCopyRatingAndPostedButtons(t *testing.T) {
@@ -164,27 +113,31 @@ func TestSuggestionRatingIsStored(t *testing.T) {
 	require.Equal(t, "Rated 4 of 5.", answer)
 }
 
-func TestListFeedbackDiffsMemberEditsOfApprovedDrafts(t *testing.T) {
+func TestListFeedbackReportsOutcomesAndMemberEdits(t *testing.T) {
 	// Verifies: BE-014
 	since := time.Now().Add(-time.Hour)
 	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().ListApprovals(mock.Anything, "member-1", since).Return([]reviewDomain.Approval{
-		{ID: "a-1", DraftID: "draft-1", Status: reviewDomain.ApprovalApproved, ProposedText: "Hiring is hard"},
-		{ID: "a-2", DraftID: "draft-2", Status: reviewDomain.ApprovalSkipped, ProposedText: "Skip me"},
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", since).Return([]reviewDomain.Notice{
+		{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", Status: reviewDomain.NoticeSent, ProposedText: "Hiring is hard"},
+		{ID: "n-2", MemberID: "member-1", DraftID: "draft-2", ScheduleID: "job-2", Status: reviewDomain.NoticeSkipped, ProposedText: "Skip me"},
 	}, nil)
 	reviews.EXPECT().ListSuggestions(mock.Anything, "member-1", since).Return([]reviewDomain.Suggestion{{ID: "s-1", Rating: 5}}, nil)
 	drafts := draftMocks.NewMockRepository(t)
 	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{Body: "Hiring is slow"}, nil)
-	story, err := NewListFeedback(proAccess(t), reviews, drafts)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-2").Return(draftDomain.Draft{Body: "Skip me"}, nil)
+	jobs := scheduleMocks.NewMockRepository(t)
+	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{Status: scheduledDomain.Published}, nil)
+	story, err := NewListFeedback(proAccess(t), reviews, drafts, jobs)
 	require.NoError(t, err)
 
 	feedback, err := story.List(context.Background(), "member-1", since)
 
 	require.NoError(t, err)
-	require.Len(t, feedback.Approvals, 2)
-	require.True(t, feedback.Approvals[0].Edited)
-	require.Equal(t, "Hiring is [-hard-]{+slow+}", feedback.Approvals[0].Diff)
-	require.Equal(t, "Hiring is slow", feedback.Approvals[0].FinalText)
-	require.Empty(t, feedback.Approvals[1].Diff)
+	require.Len(t, feedback.Posts, 2)
+	require.Equal(t, "published", feedback.Posts[0].PostStatus)
+	require.True(t, feedback.Posts[0].Edited)
+	require.Equal(t, "Hiring is [-hard-]{+slow+}", feedback.Posts[0].Diff)
+	require.Equal(t, "skipped", feedback.Posts[1].PostStatus)
+	require.False(t, feedback.Posts[1].Edited)
 	require.Equal(t, 5, feedback.Suggestions[0].Rating)
 }

@@ -23,27 +23,27 @@ func newRepo(t *testing.T) *SQLiteRepository {
 	return repo
 }
 
-func TestApprovalIsDecidedOnceAndSupersededByNewPreview(t *testing.T) {
+func TestNoticeIsSkippedOnce(t *testing.T) {
 	// Verifies: BE-013
 	repo := newRepo(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	approval := reviewDomain.Approval{ID: "a-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ProposedText: "Post", Status: reviewDomain.ApprovalPending, ScheduledAt: now.Add(time.Hour), CreatedAt: now}
-	require.NoError(t, repo.CreateApproval(ctx, approval))
+	notice := reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ProposedText: "Post", Status: reviewDomain.NoticeSent, ScheduledAt: now.Add(time.Hour), CreatedAt: now}
+	require.NoError(t, repo.CreateNotice(ctx, notice))
 
-	decided, err := repo.DecideApproval(ctx, "member-1", "a-1", reviewDomain.ApprovalApproved, now)
+	skipped, err := repo.SkipNotice(ctx, "member-1", "n-1", now)
 	require.NoError(t, err)
-	require.Equal(t, reviewDomain.ApprovalApproved, decided.Status)
-	require.NotNil(t, decided.DecidedAt)
-	_, err = repo.DecideApproval(ctx, "member-1", "a-1", reviewDomain.ApprovalSkipped, now)
+	require.Equal(t, reviewDomain.NoticeSkipped, skipped.Status)
+	require.NotNil(t, skipped.SkippedAt)
+	_, err = repo.SkipNotice(ctx, "member-1", "n-1", now)
 	require.ErrorIs(t, err, reviewDomain.ErrNotFound)
 
-	approval.ID = "a-2"
-	require.NoError(t, repo.CreateApproval(ctx, approval))
-	require.NoError(t, repo.SupersedePending(ctx, "member-1", "draft-1", now))
-	superseded, err := repo.ApprovalByID(ctx, "member-1", "a-2")
+	list, err := repo.ListNotices(ctx, "member-1", now.Add(-time.Hour))
 	require.NoError(t, err)
-	require.Equal(t, reviewDomain.ApprovalSuperseded, superseded.Status)
+	require.Len(t, list, 1)
+	count, err := repo.CountNoticesSince(ctx, "member-1", now.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
 }
 
 func TestSuggestionStoresRatingAndPostedFlag(t *testing.T) {

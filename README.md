@@ -14,10 +14,10 @@ go test ./...
 
 | # | Env var | Turns on |
 |---|---|---|
-| 1 | `BLOOMARY_USER_BOT_TOKEN`, `BLOOMARY_USER_BOT_USERNAME`, `BLOOMARY_USER_BOT_WEBHOOK_SECRET` | Telegram bot (`POST /api/telegram/webhook`): insights, approval previews, comment ideas; off while the token is empty |
+| 1 | `BLOOMARY_APP_TOKEN`, `BLOOMARY_USER_BOT_WEBHOOK_SECRET`, `BLOOMARY_USER_BOT_USERNAME` (default `Bloomary_app`) | Telegram bot (`POST /api/telegram/webhook`): insights, scheduled-post previews with Skip, comment ideas; off while the token is empty |
 | 2 | `DEEPGRAM_API_KEY` | Voice notes to the bot are transcribed (audio is never stored) |
 
-MCP tools (`/mcp`): `list_drafts`, `get_draft`, `create_draft`, `update_draft`, `attach_image`, `schedule_draft`, `request_approval`, `list_insights`, `mark_insight_used`, `send_suggestion`, `list_feedback`. Scopes: `drafts:read`, `drafts:write`, `insights:read`, `insights:write`.
+MCP tools (`/mcp`): `list_drafts`, `get_draft`, `create_draft`, `update_draft`, `attach_image`, `schedule_draft`, `notify_scheduled`, `list_insights`, `mark_insight_used`, `send_suggestion`, `list_feedback`. Scopes: `drafts:read`, `drafts:write`, `insights:read`, `insights:write`.
 
 ## Contributing
 

@@ -48,84 +48,12 @@ func (_m *MockRepository) EXPECT() *MockRepository_Expecter {
 	return &MockRepository_Expecter{mock: &_m.Mock}
 }
 
-// ApprovalByID provides a mock function for the type MockRepository
-func (_mock *MockRepository) ApprovalByID(ctx context.Context, memberID string, id string) (review.Approval, error) {
-	ret := _mock.Called(ctx, memberID, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ApprovalByID")
-	}
-
-	var r0 review.Approval
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (review.Approval, error)); ok {
-		return returnFunc(ctx, memberID, id)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) review.Approval); ok {
-		r0 = returnFunc(ctx, memberID, id)
-	} else {
-		r0 = ret.Get(0).(review.Approval)
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = returnFunc(ctx, memberID, id)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockRepository_ApprovalByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApprovalByID'
-type MockRepository_ApprovalByID_Call struct {
-	*mock.Call
-}
-
-// ApprovalByID is a helper method to define mock.On call
-//   - ctx context.Context
-//   - memberID string
-//   - id string
-func (_e *MockRepository_Expecter) ApprovalByID(ctx any, memberID any, id any) *MockRepository_ApprovalByID_Call {
-	return &MockRepository_ApprovalByID_Call{Call: _e.mock.On("ApprovalByID", ctx, memberID, id)}
-}
-
-func (_c *MockRepository_ApprovalByID_Call) Run(run func(ctx context.Context, memberID string, id string)) *MockRepository_ApprovalByID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockRepository_ApprovalByID_Call) Return(approval review.Approval, err error) *MockRepository_ApprovalByID_Call {
-	_c.Call.Return(approval, err)
-	return _c
-}
-
-func (_c *MockRepository_ApprovalByID_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string) (review.Approval, error)) *MockRepository_ApprovalByID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// CountApprovalsSince provides a mock function for the type MockRepository
-func (_mock *MockRepository) CountApprovalsSince(ctx context.Context, memberID string, since time.Time) (int, error) {
+// CountNoticesSince provides a mock function for the type MockRepository
+func (_mock *MockRepository) CountNoticesSince(ctx context.Context, memberID string, since time.Time) (int, error) {
 	ret := _mock.Called(ctx, memberID, since)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CountApprovalsSince")
+		panic("no return value specified for CountNoticesSince")
 	}
 
 	var r0 int
@@ -146,20 +74,20 @@ func (_mock *MockRepository) CountApprovalsSince(ctx context.Context, memberID s
 	return r0, r1
 }
 
-// MockRepository_CountApprovalsSince_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountApprovalsSince'
-type MockRepository_CountApprovalsSince_Call struct {
+// MockRepository_CountNoticesSince_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountNoticesSince'
+type MockRepository_CountNoticesSince_Call struct {
 	*mock.Call
 }
 
-// CountApprovalsSince is a helper method to define mock.On call
+// CountNoticesSince is a helper method to define mock.On call
 //   - ctx context.Context
 //   - memberID string
 //   - since time.Time
-func (_e *MockRepository_Expecter) CountApprovalsSince(ctx any, memberID any, since any) *MockRepository_CountApprovalsSince_Call {
-	return &MockRepository_CountApprovalsSince_Call{Call: _e.mock.On("CountApprovalsSince", ctx, memberID, since)}
+func (_e *MockRepository_Expecter) CountNoticesSince(ctx any, memberID any, since any) *MockRepository_CountNoticesSince_Call {
+	return &MockRepository_CountNoticesSince_Call{Call: _e.mock.On("CountNoticesSince", ctx, memberID, since)}
 }
 
-func (_c *MockRepository_CountApprovalsSince_Call) Run(run func(ctx context.Context, memberID string, since time.Time)) *MockRepository_CountApprovalsSince_Call {
+func (_c *MockRepository_CountNoticesSince_Call) Run(run func(ctx context.Context, memberID string, since time.Time)) *MockRepository_CountNoticesSince_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -182,12 +110,12 @@ func (_c *MockRepository_CountApprovalsSince_Call) Run(run func(ctx context.Cont
 	return _c
 }
 
-func (_c *MockRepository_CountApprovalsSince_Call) Return(n int, err error) *MockRepository_CountApprovalsSince_Call {
+func (_c *MockRepository_CountNoticesSince_Call) Return(n int, err error) *MockRepository_CountNoticesSince_Call {
 	_c.Call.Return(n, err)
 	return _c
 }
 
-func (_c *MockRepository_CountApprovalsSince_Call) RunAndReturn(run func(ctx context.Context, memberID string, since time.Time) (int, error)) *MockRepository_CountApprovalsSince_Call {
+func (_c *MockRepository_CountNoticesSince_Call) RunAndReturn(run func(ctx context.Context, memberID string, since time.Time) (int, error)) *MockRepository_CountNoticesSince_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -264,44 +192,44 @@ func (_c *MockRepository_CountSuggestionsSince_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
-// CreateApproval provides a mock function for the type MockRepository
-func (_mock *MockRepository) CreateApproval(ctx context.Context, approval review.Approval) error {
-	ret := _mock.Called(ctx, approval)
+// CreateNotice provides a mock function for the type MockRepository
+func (_mock *MockRepository) CreateNotice(ctx context.Context, notice review.Notice) error {
+	ret := _mock.Called(ctx, notice)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CreateApproval")
+		panic("no return value specified for CreateNotice")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, review.Approval) error); ok {
-		r0 = returnFunc(ctx, approval)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, review.Notice) error); ok {
+		r0 = returnFunc(ctx, notice)
 	} else {
 		r0 = ret.Error(0)
 	}
 	return r0
 }
 
-// MockRepository_CreateApproval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateApproval'
-type MockRepository_CreateApproval_Call struct {
+// MockRepository_CreateNotice_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateNotice'
+type MockRepository_CreateNotice_Call struct {
 	*mock.Call
 }
 
-// CreateApproval is a helper method to define mock.On call
+// CreateNotice is a helper method to define mock.On call
 //   - ctx context.Context
-//   - approval review.Approval
-func (_e *MockRepository_Expecter) CreateApproval(ctx any, approval any) *MockRepository_CreateApproval_Call {
-	return &MockRepository_CreateApproval_Call{Call: _e.mock.On("CreateApproval", ctx, approval)}
+//   - notice review.Notice
+func (_e *MockRepository_Expecter) CreateNotice(ctx any, notice any) *MockRepository_CreateNotice_Call {
+	return &MockRepository_CreateNotice_Call{Call: _e.mock.On("CreateNotice", ctx, notice)}
 }
 
-func (_c *MockRepository_CreateApproval_Call) Run(run func(ctx context.Context, approval review.Approval)) *MockRepository_CreateApproval_Call {
+func (_c *MockRepository_CreateNotice_Call) Run(run func(ctx context.Context, notice review.Notice)) *MockRepository_CreateNotice_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 review.Approval
+		var arg1 review.Notice
 		if args[1] != nil {
-			arg1 = args[1].(review.Approval)
+			arg1 = args[1].(review.Notice)
 		}
 		run(
 			arg0,
@@ -311,12 +239,12 @@ func (_c *MockRepository_CreateApproval_Call) Run(run func(ctx context.Context, 
 	return _c
 }
 
-func (_c *MockRepository_CreateApproval_Call) Return(err error) *MockRepository_CreateApproval_Call {
+func (_c *MockRepository_CreateNotice_Call) Return(err error) *MockRepository_CreateNotice_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockRepository_CreateApproval_Call) RunAndReturn(run func(ctx context.Context, approval review.Approval) error) *MockRepository_CreateApproval_Call {
+func (_c *MockRepository_CreateNotice_Call) RunAndReturn(run func(ctx context.Context, notice review.Notice) error) *MockRepository_CreateNotice_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -378,90 +306,6 @@ func (_c *MockRepository_CreateSuggestion_Call) RunAndReturn(run func(ctx contex
 	return _c
 }
 
-// DecideApproval provides a mock function for the type MockRepository
-func (_mock *MockRepository) DecideApproval(ctx context.Context, memberID string, id string, status review.ApprovalStatus, at time.Time) (review.Approval, error) {
-	ret := _mock.Called(ctx, memberID, id, status, at)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DecideApproval")
-	}
-
-	var r0 review.Approval
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, review.ApprovalStatus, time.Time) (review.Approval, error)); ok {
-		return returnFunc(ctx, memberID, id, status, at)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, review.ApprovalStatus, time.Time) review.Approval); ok {
-		r0 = returnFunc(ctx, memberID, id, status, at)
-	} else {
-		r0 = ret.Get(0).(review.Approval)
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, review.ApprovalStatus, time.Time) error); ok {
-		r1 = returnFunc(ctx, memberID, id, status, at)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockRepository_DecideApproval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DecideApproval'
-type MockRepository_DecideApproval_Call struct {
-	*mock.Call
-}
-
-// DecideApproval is a helper method to define mock.On call
-//   - ctx context.Context
-//   - memberID string
-//   - id string
-//   - status review.ApprovalStatus
-//   - at time.Time
-func (_e *MockRepository_Expecter) DecideApproval(ctx any, memberID any, id any, status any, at any) *MockRepository_DecideApproval_Call {
-	return &MockRepository_DecideApproval_Call{Call: _e.mock.On("DecideApproval", ctx, memberID, id, status, at)}
-}
-
-func (_c *MockRepository_DecideApproval_Call) Run(run func(ctx context.Context, memberID string, id string, status review.ApprovalStatus, at time.Time)) *MockRepository_DecideApproval_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		var arg3 review.ApprovalStatus
-		if args[3] != nil {
-			arg3 = args[3].(review.ApprovalStatus)
-		}
-		var arg4 time.Time
-		if args[4] != nil {
-			arg4 = args[4].(time.Time)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-		)
-	})
-	return _c
-}
-
-func (_c *MockRepository_DecideApproval_Call) Return(approval review.Approval, err error) *MockRepository_DecideApproval_Call {
-	_c.Call.Return(approval, err)
-	return _c
-}
-
-func (_c *MockRepository_DecideApproval_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, status review.ApprovalStatus, at time.Time) (review.Approval, error)) *MockRepository_DecideApproval_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // DeleteByMemberID provides a mock function for the type MockRepository
 func (_mock *MockRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
 	ret := _mock.Called(ctx, memberID)
@@ -519,24 +363,24 @@ func (_c *MockRepository_DeleteByMemberID_Call) RunAndReturn(run func(ctx contex
 	return _c
 }
 
-// ListApprovals provides a mock function for the type MockRepository
-func (_mock *MockRepository) ListApprovals(ctx context.Context, memberID string, since time.Time) ([]review.Approval, error) {
+// ListNotices provides a mock function for the type MockRepository
+func (_mock *MockRepository) ListNotices(ctx context.Context, memberID string, since time.Time) ([]review.Notice, error) {
 	ret := _mock.Called(ctx, memberID, since)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListApprovals")
+		panic("no return value specified for ListNotices")
 	}
 
-	var r0 []review.Approval
+	var r0 []review.Notice
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) ([]review.Approval, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) ([]review.Notice, error)); ok {
 		return returnFunc(ctx, memberID, since)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) []review.Approval); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) []review.Notice); ok {
 		r0 = returnFunc(ctx, memberID, since)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]review.Approval)
+			r0 = ret.Get(0).([]review.Notice)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, time.Time) error); ok {
@@ -547,20 +391,20 @@ func (_mock *MockRepository) ListApprovals(ctx context.Context, memberID string,
 	return r0, r1
 }
 
-// MockRepository_ListApprovals_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListApprovals'
-type MockRepository_ListApprovals_Call struct {
+// MockRepository_ListNotices_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListNotices'
+type MockRepository_ListNotices_Call struct {
 	*mock.Call
 }
 
-// ListApprovals is a helper method to define mock.On call
+// ListNotices is a helper method to define mock.On call
 //   - ctx context.Context
 //   - memberID string
 //   - since time.Time
-func (_e *MockRepository_Expecter) ListApprovals(ctx any, memberID any, since any) *MockRepository_ListApprovals_Call {
-	return &MockRepository_ListApprovals_Call{Call: _e.mock.On("ListApprovals", ctx, memberID, since)}
+func (_e *MockRepository_Expecter) ListNotices(ctx any, memberID any, since any) *MockRepository_ListNotices_Call {
+	return &MockRepository_ListNotices_Call{Call: _e.mock.On("ListNotices", ctx, memberID, since)}
 }
 
-func (_c *MockRepository_ListApprovals_Call) Run(run func(ctx context.Context, memberID string, since time.Time)) *MockRepository_ListApprovals_Call {
+func (_c *MockRepository_ListNotices_Call) Run(run func(ctx context.Context, memberID string, since time.Time)) *MockRepository_ListNotices_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -583,12 +427,12 @@ func (_c *MockRepository_ListApprovals_Call) Run(run func(ctx context.Context, m
 	return _c
 }
 
-func (_c *MockRepository_ListApprovals_Call) Return(approvals []review.Approval, err error) *MockRepository_ListApprovals_Call {
-	_c.Call.Return(approvals, err)
+func (_c *MockRepository_ListNotices_Call) Return(notices []review.Notice, err error) *MockRepository_ListNotices_Call {
+	_c.Call.Return(notices, err)
 	return _c
 }
 
-func (_c *MockRepository_ListApprovals_Call) RunAndReturn(run func(ctx context.Context, memberID string, since time.Time) ([]review.Approval, error)) *MockRepository_ListApprovals_Call {
+func (_c *MockRepository_ListNotices_Call) RunAndReturn(run func(ctx context.Context, memberID string, since time.Time) ([]review.Notice, error)) *MockRepository_ListNotices_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -736,6 +580,78 @@ func (_c *MockRepository_MarkSuggestionPosted_Call) RunAndReturn(run func(ctx co
 	return _c
 }
 
+// NoticeByID provides a mock function for the type MockRepository
+func (_mock *MockRepository) NoticeByID(ctx context.Context, memberID string, id string) (review.Notice, error) {
+	ret := _mock.Called(ctx, memberID, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for NoticeByID")
+	}
+
+	var r0 review.Notice
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (review.Notice, error)); ok {
+		return returnFunc(ctx, memberID, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) review.Notice); ok {
+		r0 = returnFunc(ctx, memberID, id)
+	} else {
+		r0 = ret.Get(0).(review.Notice)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, memberID, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRepository_NoticeByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NoticeByID'
+type MockRepository_NoticeByID_Call struct {
+	*mock.Call
+}
+
+// NoticeByID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - memberID string
+//   - id string
+func (_e *MockRepository_Expecter) NoticeByID(ctx any, memberID any, id any) *MockRepository_NoticeByID_Call {
+	return &MockRepository_NoticeByID_Call{Call: _e.mock.On("NoticeByID", ctx, memberID, id)}
+}
+
+func (_c *MockRepository_NoticeByID_Call) Run(run func(ctx context.Context, memberID string, id string)) *MockRepository_NoticeByID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_NoticeByID_Call) Return(notice review.Notice, err error) *MockRepository_NoticeByID_Call {
+	_c.Call.Return(notice, err)
+	return _c
+}
+
+func (_c *MockRepository_NoticeByID_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string) (review.Notice, error)) *MockRepository_NoticeByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RateSuggestion provides a mock function for the type MockRepository
 func (_mock *MockRepository) RateSuggestion(ctx context.Context, memberID string, id string, rating int, at time.Time) error {
 	ret := _mock.Called(ctx, memberID, id, rating, at)
@@ -811,38 +727,47 @@ func (_c *MockRepository_RateSuggestion_Call) RunAndReturn(run func(ctx context.
 	return _c
 }
 
-// SupersedePending provides a mock function for the type MockRepository
-func (_mock *MockRepository) SupersedePending(ctx context.Context, memberID string, draftID string, at time.Time) error {
-	ret := _mock.Called(ctx, memberID, draftID, at)
+// SkipNotice provides a mock function for the type MockRepository
+func (_mock *MockRepository) SkipNotice(ctx context.Context, memberID string, id string, at time.Time) (review.Notice, error) {
+	ret := _mock.Called(ctx, memberID, id, at)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SupersedePending")
+		panic("no return value specified for SkipNotice")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) error); ok {
-		r0 = returnFunc(ctx, memberID, draftID, at)
-	} else {
-		r0 = ret.Error(0)
+	var r0 review.Notice
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) (review.Notice, error)); ok {
+		return returnFunc(ctx, memberID, id, at)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) review.Notice); ok {
+		r0 = returnFunc(ctx, memberID, id, at)
+	} else {
+		r0 = ret.Get(0).(review.Notice)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, time.Time) error); ok {
+		r1 = returnFunc(ctx, memberID, id, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
-// MockRepository_SupersedePending_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SupersedePending'
-type MockRepository_SupersedePending_Call struct {
+// MockRepository_SkipNotice_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SkipNotice'
+type MockRepository_SkipNotice_Call struct {
 	*mock.Call
 }
 
-// SupersedePending is a helper method to define mock.On call
+// SkipNotice is a helper method to define mock.On call
 //   - ctx context.Context
 //   - memberID string
-//   - draftID string
+//   - id string
 //   - at time.Time
-func (_e *MockRepository_Expecter) SupersedePending(ctx any, memberID any, draftID any, at any) *MockRepository_SupersedePending_Call {
-	return &MockRepository_SupersedePending_Call{Call: _e.mock.On("SupersedePending", ctx, memberID, draftID, at)}
+func (_e *MockRepository_Expecter) SkipNotice(ctx any, memberID any, id any, at any) *MockRepository_SkipNotice_Call {
+	return &MockRepository_SkipNotice_Call{Call: _e.mock.On("SkipNotice", ctx, memberID, id, at)}
 }
 
-func (_c *MockRepository_SupersedePending_Call) Run(run func(ctx context.Context, memberID string, draftID string, at time.Time)) *MockRepository_SupersedePending_Call {
+func (_c *MockRepository_SkipNotice_Call) Run(run func(ctx context.Context, memberID string, id string, at time.Time)) *MockRepository_SkipNotice_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -870,12 +795,12 @@ func (_c *MockRepository_SupersedePending_Call) Run(run func(ctx context.Context
 	return _c
 }
 
-func (_c *MockRepository_SupersedePending_Call) Return(err error) *MockRepository_SupersedePending_Call {
-	_c.Call.Return(err)
+func (_c *MockRepository_SkipNotice_Call) Return(notice review.Notice, err error) *MockRepository_SkipNotice_Call {
+	_c.Call.Return(notice, err)
 	return _c
 }
 
-func (_c *MockRepository_SupersedePending_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string, at time.Time) error) *MockRepository_SupersedePending_Call {
+func (_c *MockRepository_SkipNotice_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, at time.Time) (review.Notice, error)) *MockRepository_SkipNotice_Call {
 	_c.Call.Return(run)
 	return _c
 }

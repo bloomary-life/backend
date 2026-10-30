@@ -27,7 +27,6 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create scheduled_posts: %w", err)
 	}
-	_, _ = db.Exec(`ALTER TABLE scheduled_posts ADD COLUMN approval_required INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`UPDATE scheduled_posts SET status='needs_review',error='Worker stopped while processing; verify LinkedIn before retrying' WHERE status='processing'`)
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_posts_due ON scheduled_posts(status, scheduled_at) WHERE status='pending'`)
 	if err != nil {
@@ -46,7 +45,7 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 
 func (r *SQLiteRepository) Schedule(ctx context.Context, in domain.CreateInput) (domain.Post, error) {
 	now := time.Now().UTC()
-	updated, err := scan(r.db.QueryRowContext(ctx, `UPDATE scheduled_posts SET scheduled_at=?,status='pending',retries=0,next_attempt_at=NULL,error=NULL,approval_required=?,updated_at=? WHERE member_id=? AND draft_id=? AND (status IN ('pending','retry') OR (status='needs_review' AND ?)) RETURNING id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,''),approval_required`, in.ScheduledAt.UTC().Format(time.RFC3339Nano), in.NeedsApproval, now.Format(time.RFC3339Nano), in.MemberID, in.DraftID, in.ReviewConfirmed))
+	updated, err := scan(r.db.QueryRowContext(ctx, `UPDATE scheduled_posts SET scheduled_at=?,status='pending',retries=0,next_attempt_at=NULL,error=NULL,updated_at=? WHERE member_id=? AND draft_id=? AND (status IN ('pending','retry') OR (status='needs_review' AND ?)) RETURNING id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,'')`, in.ScheduledAt.UTC().Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), in.MemberID, in.DraftID, in.ReviewConfirmed))
 	if err == nil {
 		return updated, nil
 	}
@@ -66,15 +65,15 @@ func (r *SQLiteRepository) Schedule(ctx context.Context, in domain.CreateInput) 
 		return domain.Post{}, err
 	}
 	id := hex.EncodeToString(randomID)
-	_, err = r.db.ExecContext(ctx, `INSERT INTO scheduled_posts(id,member_id,draft_id,scheduled_at,status,created_at,updated_at,approval_required) VALUES(?,?,?,?,?,?,?,?)`, id, in.MemberID, in.DraftID, in.ScheduledAt.UTC().Format(time.RFC3339Nano), domain.Pending, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), in.NeedsApproval)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO scheduled_posts(id,member_id,draft_id,scheduled_at,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, id, in.MemberID, in.DraftID, in.ScheduledAt.UTC().Format(time.RFC3339Nano), domain.Pending, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return domain.Post{}, err
 	}
-	return domain.Post{ID: id, MemberID: in.MemberID, DraftID: in.DraftID, ScheduledAt: in.ScheduledAt.UTC(), Status: domain.Pending, AwaitingApproval: in.NeedsApproval}, nil
+	return domain.Post{ID: id, MemberID: in.MemberID, DraftID: in.DraftID, ScheduledAt: in.ScheduledAt.UTC(), Status: domain.Pending}, nil
 }
 
 func (r *SQLiteRepository) ListActive(ctx context.Context, memberID string) ([]domain.Post, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,''),approval_required FROM scheduled_posts WHERE member_id=? AND status IN ('pending','processing','retry','needs_review') ORDER BY scheduled_at`, memberID)
+	rows, err := r.db.QueryContext(ctx, `SELECT id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,'') FROM scheduled_posts WHERE member_id=? AND status IN ('pending','processing','retry','needs_review') ORDER BY scheduled_at`, memberID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +90,11 @@ func (r *SQLiteRepository) ListActive(ctx context.Context, memberID string) ([]d
 }
 
 func (r *SQLiteRepository) ByID(ctx context.Context, memberID, id string) (domain.Post, error) {
-	return scan(r.db.QueryRowContext(ctx, `SELECT id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,''),approval_required FROM scheduled_posts WHERE member_id=? AND id=?`, memberID, id))
+	return scan(r.db.QueryRowContext(ctx, `SELECT id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,'') FROM scheduled_posts WHERE member_id=? AND id=?`, memberID, id))
 }
 
 func (r *SQLiteRepository) ClaimDue(ctx context.Context, now time.Time) (domain.Post, error) {
-	row := r.db.QueryRowContext(ctx, `UPDATE scheduled_posts SET status='processing',updated_at=? WHERE id=(SELECT id FROM scheduled_posts WHERE approval_required=0 AND ((status='pending' AND scheduled_at<=?) OR (status='retry' AND next_attempt_at<=?)) ORDER BY scheduled_at LIMIT 1) RETURNING id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,''),approval_required`, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano))
+	row := r.db.QueryRowContext(ctx, `UPDATE scheduled_posts SET status='processing',updated_at=? WHERE id=(SELECT id FROM scheduled_posts WHERE (status='pending' AND scheduled_at<=?) OR (status='retry' AND next_attempt_at<=?) ORDER BY scheduled_at LIMIT 1) RETURNING id,member_id,draft_id,scheduled_at,status,COALESCE(linkedin_post_id,''),COALESCE(error,'')`, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano))
 	return scan(row)
 }
 
@@ -116,23 +115,6 @@ func (r *SQLiteRepository) Retry(ctx context.Context, id string, next time.Time,
 	return err
 }
 
-func (r *SQLiteRepository) Approve(ctx context.Context, memberID, id string) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE scheduled_posts SET approval_required=0,updated_at=? WHERE member_id=? AND id=? AND status IN ('pending','retry')`, time.Now().UTC().Format(time.RFC3339Nano), memberID, id)
-	if err != nil {
-		return err
-	}
-	n, err := result.RowsAffected()
-	if err == nil && n == 0 {
-		return sql.ErrNoRows
-	}
-	return err
-}
-
-func (r *SQLiteRepository) HoldForApproval(ctx context.Context, memberID, draftID string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_posts SET approval_required=1,updated_at=? WHERE member_id=? AND draft_id=? AND status IN ('pending','retry')`, time.Now().UTC().Format(time.RFC3339Nano), memberID, draftID)
-	return err
-}
-
 // Cancel leaves processing jobs alone: the worker may already be posting them.
 func (r *SQLiteRepository) Cancel(ctx context.Context, memberID, draftID string) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_posts SET status='cancelled',updated_at=? WHERE member_id=? AND draft_id=? AND status IN ('pending','retry','needs_review')`, time.Now().UTC().Format(time.RFC3339Nano), memberID, draftID)
@@ -145,7 +127,7 @@ func scan(row scanner) (domain.Post, error) {
 	var p domain.Post
 	var scheduled string
 	var status string
-	err := row.Scan(&p.ID, &p.MemberID, &p.DraftID, &scheduled, &status, &p.LinkedInPostID, &p.Error, &p.AwaitingApproval)
+	err := row.Scan(&p.ID, &p.MemberID, &p.DraftID, &scheduled, &status, &p.LinkedInPostID, &p.Error)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.Post{}, sql.ErrNoRows
 	}

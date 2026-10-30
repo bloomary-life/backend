@@ -48,69 +48,6 @@ func (_m *MockRepository) EXPECT() *MockRepository_Expecter {
 	return &MockRepository_Expecter{mock: &_m.Mock}
 }
 
-// Approve provides a mock function for the type MockRepository
-func (_mock *MockRepository) Approve(ctx context.Context, memberID string, id string) error {
-	ret := _mock.Called(ctx, memberID, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Approve")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = returnFunc(ctx, memberID, id)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockRepository_Approve_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Approve'
-type MockRepository_Approve_Call struct {
-	*mock.Call
-}
-
-// Approve is a helper method to define mock.On call
-//   - ctx context.Context
-//   - memberID string
-//   - id string
-func (_e *MockRepository_Expecter) Approve(ctx any, memberID any, id any) *MockRepository_Approve_Call {
-	return &MockRepository_Approve_Call{Call: _e.mock.On("Approve", ctx, memberID, id)}
-}
-
-func (_c *MockRepository_Approve_Call) Run(run func(ctx context.Context, memberID string, id string)) *MockRepository_Approve_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockRepository_Approve_Call) Return(err error) *MockRepository_Approve_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockRepository_Approve_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string) error) *MockRepository_Approve_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ByID provides a mock function for the type MockRepository
 func (_mock *MockRepository) ByID(context1 context.Context, s string, s1 string) (scheduledpost.Post, error) {
 	ret := _mock.Called(context1, s, s1)
@@ -308,69 +245,6 @@ func (_c *MockRepository_ClaimDue_Call) Return(post scheduledpost.Post, err erro
 }
 
 func (_c *MockRepository_ClaimDue_Call) RunAndReturn(run func(context1 context.Context, time1 time.Time) (scheduledpost.Post, error)) *MockRepository_ClaimDue_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// HoldForApproval provides a mock function for the type MockRepository
-func (_mock *MockRepository) HoldForApproval(ctx context.Context, memberID string, draftID string) error {
-	ret := _mock.Called(ctx, memberID, draftID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for HoldForApproval")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = returnFunc(ctx, memberID, draftID)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockRepository_HoldForApproval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HoldForApproval'
-type MockRepository_HoldForApproval_Call struct {
-	*mock.Call
-}
-
-// HoldForApproval is a helper method to define mock.On call
-//   - ctx context.Context
-//   - memberID string
-//   - draftID string
-func (_e *MockRepository_Expecter) HoldForApproval(ctx any, memberID any, draftID any) *MockRepository_HoldForApproval_Call {
-	return &MockRepository_HoldForApproval_Call{Call: _e.mock.On("HoldForApproval", ctx, memberID, draftID)}
-}
-
-func (_c *MockRepository_HoldForApproval_Call) Run(run func(ctx context.Context, memberID string, draftID string)) *MockRepository_HoldForApproval_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockRepository_HoldForApproval_Call) Return(err error) *MockRepository_HoldForApproval_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockRepository_HoldForApproval_Call) RunAndReturn(run func(ctx context.Context, memberID string, draftID string) error) *MockRepository_HoldForApproval_Call {
 	_c.Call.Return(run)
 	return _c
 }

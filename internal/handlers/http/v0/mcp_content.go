@@ -44,24 +44,22 @@ type mcpScheduleDraftInput struct {
 }
 
 type mcpSchedule struct {
-	ScheduleID       string `json:"scheduleId"`
-	DraftID          string `json:"draftId"`
-	Status           string `json:"status"`
-	PublishAt        string `json:"publishAt"`
-	AwaitingApproval bool   `json:"awaitingApproval"`
+	ScheduleID string `json:"scheduleId"`
+	DraftID    string `json:"draftId"`
+	Status     string `json:"status"`
+	PublishAt  string `json:"publishAt"`
 }
 
-type mcpRequestApprovalInput struct {
+type mcpNotifyScheduledInput struct {
 	DraftID string `json:"draft_id" jsonschema:"Draft scheduled with schedule_draft"`
-	Note    string `json:"note,omitempty" jsonschema:"Short note shown above the preview, e.g. which insight it came from"`
+	Note    string `json:"note,omitempty" jsonschema:"Plain-text note shown above the preview (max 1000 characters), e.g. sources"`
 }
 
-type mcpApproval struct {
-	ApprovalID string `json:"approvalId"`
+type mcpNotice struct {
+	NoticeID   string `json:"noticeId"`
 	DraftID    string `json:"draftId"`
 	ScheduleID string `json:"scheduleId"`
 	PublishAt  string `json:"publishAt"`
-	Status     string `json:"status"`
 }
 
 type mcpSendSuggestionInput struct {
@@ -80,14 +78,14 @@ type mcpListFeedbackInput struct {
 	Since string `json:"since,omitempty" jsonschema:"RFC 3339 time; default 30 days ago"`
 }
 
-type mcpApprovalFeedback struct {
-	ApprovalID   string `json:"approvalId"`
+type mcpPostFeedback struct {
+	NoticeID     string `json:"noticeId"`
 	DraftID      string `json:"draftId"`
 	Status       string `json:"status"`
 	Note         string `json:"note,omitempty"`
 	PublishAt    string `json:"publishAt"`
-	RequestedAt  string `json:"requestedAt"`
-	DecidedAt    string `json:"decidedAt,omitempty"`
+	NotifiedAt   string `json:"notifiedAt"`
+	SkippedAt    string `json:"skippedAt,omitempty"`
 	ProposedText string `json:"proposedText"`
 	FinalText    string `json:"finalText,omitempty"`
 	Diff         string `json:"diff,omitempty"`
@@ -106,7 +104,7 @@ type mcpSuggestionFeedback struct {
 }
 
 type mcpFeedback struct {
-	Approvals   []mcpApprovalFeedback   `json:"approvals"`
+	Posts       []mcpPostFeedback       `json:"posts"`
 	Suggestions []mcpSuggestionFeedback `json:"suggestions"`
 }
 
@@ -115,7 +113,7 @@ type mcpMarkInsightUsedInput struct {
 	DraftID   string `json:"draft_id" jsonschema:"Draft written from this insight"`
 }
 
-// addMCPContentTools registers the content-engine tools: insights, images, schedules, approvals, suggestions.
+// addMCPContentTools registers the content-engine tools: insights, images, schedules, notices, suggestions.
 func (s *service) addMCPContentTools(server *mcp.Server) {
 	mcp.AddTool(server, mcpOAuthTool("list_insights", "List ideas the member sent to the Bloomary Telegram bot (text or transcribed voice), newest first.", "insights:read"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpListInsightsInput) (*mcp.CallToolResult, mcpInsightList, error) {
@@ -172,7 +170,7 @@ func (s *service) addMCPContentTools(server *mcp.Server) {
 }
 
 func (s *service) addMCPReviewTools(server *mcp.Server) {
-	mcp.AddTool(server, mcpOAuthTool("schedule_draft", "Schedule a draft for LinkedIn. It is held until the member taps Approve in Telegram (call request_approval next); changing its text or image later holds it again.", "drafts:write"),
+	mcp.AddTool(server, mcpOAuthTool("schedule_draft", "Schedule a draft for LinkedIn. It publishes at publish_at unless the member taps Skip; call notify_scheduled next.", "drafts:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpScheduleDraftInput) (*mcp.CallToolResult, mcpSchedule, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {
@@ -182,27 +180,27 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			if err != nil {
 				return nil, mcpSchedule{}, errors.New("publish_at must be an RFC 3339 time with offset")
 			}
-			post, err := s.scheduleMCPDraftStory.Schedule(ctx, memberID, draftDomain.NormalizeID(input.DraftID), publishAt)
+			post, err := s.scheduledPostStory.Schedule(ctx, scheduledDomain.CreateInput{MemberID: memberID, DraftID: draftDomain.NormalizeID(input.DraftID), ScheduledAt: publishAt.UTC()})
 			if err != nil {
 				return nil, mcpSchedule{}, err
 			}
 			return nil, toMCPSchedule(post), nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("request_approval", "Send the member a Telegram preview (text, image, time) of a scheduled draft with Approve, Skip and Edit. Approve releases the schedule; Skip cancels it.", "drafts:write"),
-		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpRequestApprovalInput) (*mcp.CallToolResult, mcpApproval, error) {
+	mcp.AddTool(server, mcpOAuthTool("notify_scheduled", "Send the member a Telegram message for a scheduled draft: text, image, time, an Edit link and a Skip button that cancels the schedule.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpNotifyScheduledInput) (*mcp.CallToolResult, mcpNotice, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {
-				return nil, mcpApproval{}, err
+				return nil, mcpNotice{}, err
 			}
-			if s.requestApprovalStory == nil {
-				return nil, mcpApproval{}, errors.New("the Bloomary Telegram bot is not configured")
+			if s.notifyScheduledStory == nil {
+				return nil, mcpNotice{}, errors.New("the Bloomary Telegram bot is not configured")
 			}
-			approval, err := s.requestApprovalStory.Request(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note)
+			notice, err := s.notifyScheduledStory.Notify(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note)
 			if err != nil {
-				return nil, mcpApproval{}, err
+				return nil, mcpNotice{}, err
 			}
-			return nil, mcpApproval{ApprovalID: approval.ID, DraftID: approval.DraftID, ScheduleID: approval.ScheduleID,
-				PublishAt: approval.ScheduledAt.UTC().Format(time.RFC3339), Status: string(approval.Status)}, nil
+			return nil, mcpNotice{NoticeID: notice.ID, DraftID: notice.DraftID, ScheduleID: notice.ScheduleID,
+				PublishAt: notice.ScheduledAt.UTC().Format(time.RFC3339)}, nil
 		})
 	mcp.AddTool(server, mcpOAuthTool("send_suggestion", "Send the member a comment idea in Telegram with Open post, Copy, rating 1-5 and Posted buttons. The member posts it themselves.", "insights:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSendSuggestionInput) (*mcp.CallToolResult, mcpSuggestionSent, error) {
@@ -220,7 +218,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			}
 			return nil, mcpSuggestionSent{SuggestionID: suggestion.ID, CopyButton: len([]rune(suggestion.Text)) <= reviewDomain.CopyTextLimit}, nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("list_feedback", "List the member's approvals and skips (with their edits as a word diff for approved drafts) and comment suggestion ratings and posted flags.", "insights:read"),
+	mcp.AddTool(server, mcpOAuthTool("list_feedback", "List notified posts with their outcome (scheduled, published, skipped, failed) and the member's edits as a word diff, plus comment suggestion ratings and posted flags.", "insights:read"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpListFeedbackInput) (*mcp.CallToolResult, mcpFeedback, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "insights:read")
 			if err != nil {
@@ -242,20 +240,19 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 }
 
 func toMCPSchedule(post scheduledDomain.Post) mcpSchedule {
-	return mcpSchedule{ScheduleID: post.ID, DraftID: post.DraftID, Status: string(post.Status),
-		PublishAt: post.ScheduledAt.UTC().Format(time.RFC3339), AwaitingApproval: post.AwaitingApproval}
+	return mcpSchedule{ScheduleID: post.ID, DraftID: post.DraftID, Status: string(post.Status), PublishAt: post.ScheduledAt.UTC().Format(time.RFC3339)}
 }
 
 func toMCPFeedback(feedback reviewDomain.Feedback) mcpFeedback {
-	out := mcpFeedback{Approvals: make([]mcpApprovalFeedback, 0, len(feedback.Approvals)), Suggestions: make([]mcpSuggestionFeedback, 0, len(feedback.Suggestions))}
-	for _, a := range feedback.Approvals {
-		item := mcpApprovalFeedback{ApprovalID: a.ID, DraftID: a.DraftID, Status: string(a.Status), Note: a.Note,
-			PublishAt: a.ScheduledAt.UTC().Format(time.RFC3339), RequestedAt: a.CreatedAt.UTC().Format(time.RFC3339),
-			ProposedText: a.ProposedText, FinalText: a.FinalText, Diff: a.Diff, Edited: a.Edited}
-		if a.DecidedAt != nil {
-			item.DecidedAt = a.DecidedAt.UTC().Format(time.RFC3339)
+	out := mcpFeedback{Posts: make([]mcpPostFeedback, 0, len(feedback.Posts)), Suggestions: make([]mcpSuggestionFeedback, 0, len(feedback.Suggestions))}
+	for _, p := range feedback.Posts {
+		item := mcpPostFeedback{NoticeID: p.ID, DraftID: p.DraftID, Status: p.PostStatus, Note: p.Note,
+			PublishAt: p.ScheduledAt.UTC().Format(time.RFC3339), NotifiedAt: p.CreatedAt.UTC().Format(time.RFC3339),
+			ProposedText: p.ProposedText, FinalText: p.FinalText, Diff: p.Diff, Edited: p.Edited}
+		if p.SkippedAt != nil {
+			item.SkippedAt = p.SkippedAt.UTC().Format(time.RFC3339)
 		}
-		out.Approvals = append(out.Approvals, item)
+		out.Posts = append(out.Posts, item)
 	}
 	for _, sg := range feedback.Suggestions {
 		out.Suggestions = append(out.Suggestions, mcpSuggestionFeedback{SuggestionID: sg.ID, Kind: sg.Kind, TargetURL: sg.TargetURL, Text: sg.Text,

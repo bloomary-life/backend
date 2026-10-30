@@ -419,20 +419,7 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
-	// Any MCP change to a scheduled draft holds it again until the member approves it in Telegram.
-	draftChangeHold, err := stories.NewMCPDraftChangeHold(store.scheduledPostRepo, store.reviewRepo)
-	if err != nil {
-		return v0.ApplicationStories{}, err
-	}
-	heldMCPUpdate, err := stories.NewHoldOnMCPUpdate(updateMCPDraft, draftChangeHold)
-	if err != nil {
-		return v0.ApplicationStories{}, err
-	}
-	scheduleMCPDraft, err := stories.NewScheduleMCPDraft(schedule, store.reviewRepo)
-	if err != nil {
-		return v0.ApplicationStories{}, err
-	}
-	listFeedback, err := stories.NewListFeedback(access, store.reviewRepo, store.draftRepo)
+	listFeedback, err := stories.NewListFeedback(access, store.reviewRepo, store.draftRepo, store.scheduledPostRepo)
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
@@ -476,11 +463,7 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		attachImage, err := stories.NewAttachMCPImage(access, store.draftRepo, draftImages, imagefetchGate.New(30*time.Second))
-		if err != nil {
-			return v0.ApplicationStories{}, err
-		}
-		attachMCPImage, err = stories.NewHoldOnMCPAttach(attachImage, draftChangeHold)
+		attachMCPImage, err = stories.NewAttachMCPImage(access, store.draftRepo, draftImages, imagefetchGate.New(30*time.Second))
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -508,7 +491,7 @@ func newApplicationStories(
 	}
 	var telegramBot telegramDomain.BotStory
 	var telegramLink telegramDomain.LinkStory
-	var requestApproval reviewDomain.RequestApprovalStory
+	var notifyScheduled reviewDomain.NotifyScheduledStory
 	var sendSuggestion reviewDomain.SendSuggestionStory
 	if userBot != nil {
 		telegramLink, err = stories.NewTelegramLink(store.telegramLinkRepo, config.TelegramBotUsername)
@@ -519,7 +502,7 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		requestApproval, err = stories.NewRequestApproval(access, store.draftRepo, store.scheduledPostRepo, store.reviewRepo, draftImages, notifier, config.WebAllowedOrigin)
+		notifyScheduled, err = stories.NewNotifyScheduled(access, store.draftRepo, store.scheduledPostRepo, store.reviewRepo, draftImages, notifier, config.WebAllowedOrigin)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -527,7 +510,7 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		approvals, err := stories.NewApprovalCallbacks(store.reviewRepo, store.scheduledPostRepo, userBot)
+		skips, err := stories.NewSkipCallbacks(store.reviewRepo, store.scheduledPostRepo, userBot)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -535,17 +518,17 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, approvals, suggestions)
+		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, skips, suggestions)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
 	}
 	return v0.ApplicationStories{
-		TelegramBot: telegramBot, TelegramLink: telegramLink, RequestApproval: requestApproval, SendSuggestion: sendSuggestion,
-		ScheduleMCPDraft: scheduleMCPDraft, ListFeedback: listFeedback,
+		TelegramBot: telegramBot, TelegramLink: telegramLink, NotifyScheduled: notifyScheduled, SendSuggestion: sendSuggestion,
+		ListFeedback: listFeedback,
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
-		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: heldMCPUpdate, DraftImages: draftImageStory,
+		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,
 		ListMCPInsights: listMCPInsights, MarkMCPInsightUsed: markMCPInsightUsed, AttachMCPImage: attachMCPImage,
 		AppleTransaction: appleSync, AppleNotifications: appleNotifications,
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,
@@ -554,7 +537,7 @@ func newApplicationStories(
 }
 
 // newUserBotGates builds the user Telegram bot and its Deepgram transcriber.
-// Both stay nil while BLOOMARY_USER_BOT_TOKEN is empty; the transcriber also needs DEEPGRAM_API_KEY.
+// Both stay nil while BLOOMARY_APP_TOKEN is empty; the transcriber also needs DEEPGRAM_API_KEY.
 func newUserBotGates(
 	config platform.Config, newClient func(string) (httpclient.Client, error),
 ) (telegramDomain.Gate, telegramDomain.Transcriber, error) {
@@ -565,7 +548,7 @@ func newUserBotGates(
 		return nil, nil, errors.New("BLOOMARY_USER_BOT_WEBHOOK_SECRET must be 1-256 characters of A-Z, a-z, 0-9, _ or -")
 	}
 	if strings.TrimSpace(config.UserBotUsername) == "" {
-		return nil, nil, errors.New("BLOOMARY_USER_BOT_USERNAME is required with BLOOMARY_USER_BOT_TOKEN")
+		return nil, nil, errors.New("BLOOMARY_USER_BOT_USERNAME is required with BLOOMARY_APP_TOKEN")
 	}
 	telegramClient, err := newClient("telegram")
 	if err != nil {

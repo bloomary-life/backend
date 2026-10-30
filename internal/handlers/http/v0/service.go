@@ -87,8 +87,7 @@ type service struct {
 	listInsightsStory     insightDomain.ListMCPInsightsStory
 	markInsightUsedStory  insightDomain.MarkMCPInsightUsedStory
 	attachImageStory      draftDomain.AttachMCPImageStory
-	scheduleMCPDraftStory reviewDomain.ScheduleMCPDraftStory
-	requestApprovalStory  reviewDomain.RequestApprovalStory
+	notifyScheduledStory  reviewDomain.NotifyScheduledStory
 	sendSuggestionStory   reviewDomain.SendSuggestionStory
 	listFeedbackStory     reviewDomain.ListFeedbackStory
 	mcpAuthorizationStory mcpDomain.AuthorizationStory
@@ -146,11 +145,10 @@ type ApplicationStories struct {
 	ListMCPInsights    insightDomain.ListMCPInsightsStory
 	MarkMCPInsightUsed insightDomain.MarkMCPInsightUsedStory
 	// AttachMCPImage stays nil while R2 draft image storage is not configured.
-	AttachMCPImage   draftDomain.AttachMCPImageStory
-	ScheduleMCPDraft reviewDomain.ScheduleMCPDraftStory
-	ListFeedback     reviewDomain.ListFeedbackStory
-	// RequestApproval and SendSuggestion stay nil while the user bot is not configured.
-	RequestApproval    reviewDomain.RequestApprovalStory
+	AttachMCPImage draftDomain.AttachMCPImageStory
+	ListFeedback   reviewDomain.ListFeedbackStory
+	// NotifyScheduled and SendSuggestion stay nil while the user bot is not configured.
+	NotifyScheduled    reviewDomain.NotifyScheduledStory
 	SendSuggestion     reviewDomain.SendSuggestionStory
 	DraftImages        draftDomain.ImageStory
 	AppleTransaction   appleiapDomain.TransactionSyncStory
@@ -225,8 +223,7 @@ func NewService(
 		listInsightsStory:     appStories.ListMCPInsights,
 		markInsightUsedStory:  appStories.MarkMCPInsightUsed,
 		attachImageStory:      appStories.AttachMCPImage,
-		scheduleMCPDraftStory: appStories.ScheduleMCPDraft,
-		requestApprovalStory:  appStories.RequestApproval,
+		notifyScheduledStory:  appStories.NotifyScheduled,
 		sendSuggestionStory:   appStories.SendSuggestion,
 		listFeedbackStory:     appStories.ListFeedback,
 		mcpAuthorizationStory: appStories.MCPAuthorization,
@@ -263,7 +260,7 @@ func validateApplicationStories(app ApplicationStories) error {
 		{"MCP list drafts", app.ListMCPDrafts}, {"MCP get draft", app.GetMCPDraft},
 		{"MCP create draft", app.CreateMCPDraft}, {"MCP update draft", app.UpdateMCPDraft},
 		{"MCP list insights", app.ListMCPInsights}, {"MCP mark insight used", app.MarkMCPInsightUsed},
-		{"MCP schedule draft", app.ScheduleMCPDraft}, {"MCP list feedback", app.ListFeedback},
+		{"MCP list feedback", app.ListFeedback},
 		{"Apple transaction", app.AppleTransaction},
 		{"Apple notifications", app.AppleNotifications}, {"Paddle webhook", app.PaddleWebhook}, {"Paddle billing", app.PaddleBilling},
 		{"account deletion", app.AccountDeletion}, {"entitlement access", app.Access},

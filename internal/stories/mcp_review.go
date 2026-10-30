@@ -3,7 +3,6 @@ package stories
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -25,92 +24,9 @@ import (
 // Telegram counts message length in UTF-16 code units; a message holds at most 4096.
 const telegramMessageLimit = 4096
 
-// ScheduleMCPDraft schedules through the regular schedule story, but always held for approval.
-type ScheduleMCPDraft struct {
-	schedules scheduledDomain.Story
-	reviews   reviewDomain.Repository
-}
-
-func NewScheduleMCPDraft(schedules scheduledDomain.Story, reviews reviewDomain.Repository) (*ScheduleMCPDraft, error) {
-	if schedules == nil || reviews == nil {
-		return nil, fmt.Errorf("schedule MCP draft: schedule story and review repository are required")
-	}
-	return &ScheduleMCPDraft{schedules: schedules, reviews: reviews}, nil
-}
-
-func (s *ScheduleMCPDraft) Schedule(ctx context.Context, memberID, draftID string, publishAt time.Time) (scheduledDomain.Post, error) {
-	post, err := s.schedules.Schedule(ctx, scheduledDomain.CreateInput{MemberID: memberID, DraftID: draftID, ScheduledAt: publishAt.UTC(), NeedsApproval: true})
-	if err != nil {
-		return scheduledDomain.Post{}, err
-	}
-	// A new time makes earlier previews of this draft stale.
-	return post, s.reviews.SupersedePending(ctx, memberID, draftID, time.Now().UTC())
-}
-
-// MCPDraftChangeHold holds a draft's schedule again whenever the AI app changes its text or image.
-type MCPDraftChangeHold struct {
-	jobs    scheduledDomain.Repository
-	reviews reviewDomain.Repository
-}
-
-func NewMCPDraftChangeHold(jobs scheduledDomain.Repository, reviews reviewDomain.Repository) (*MCPDraftChangeHold, error) {
-	if jobs == nil || reviews == nil {
-		return nil, fmt.Errorf("MCP draft change hold: schedule and review repositories are required")
-	}
-	return &MCPDraftChangeHold{jobs: jobs, reviews: reviews}, nil
-}
-
-func (s *MCPDraftChangeHold) HoldForApproval(ctx context.Context, memberID, draftID string) error {
-	if err := s.jobs.HoldForApproval(ctx, memberID, draftID); err != nil {
-		return err
-	}
-	return s.reviews.SupersedePending(ctx, memberID, draftID, time.Now().UTC())
-}
-
-// HoldOnMCPUpdate wraps update_draft so an approved schedule never posts text the member did not see.
-type HoldOnMCPUpdate struct {
-	inner draftDomain.UpdateMCPDraftStory
-	hold  reviewDomain.DraftChangeHold
-}
-
-func NewHoldOnMCPUpdate(inner draftDomain.UpdateMCPDraftStory, hold reviewDomain.DraftChangeHold) (*HoldOnMCPUpdate, error) {
-	if inner == nil || hold == nil {
-		return nil, fmt.Errorf("hold on MCP update: story and hold are required")
-	}
-	return &HoldOnMCPUpdate{inner: inner, hold: hold}, nil
-}
-
-func (s *HoldOnMCPUpdate) Update(ctx context.Context, memberID, draftID, body string) (draftDomain.Draft, error) {
-	draft, err := s.inner.Update(ctx, memberID, draftID, body)
-	if err != nil {
-		return draft, err
-	}
-	return draft, s.hold.HoldForApproval(ctx, memberID, draftID)
-}
-
-// HoldOnMCPAttach wraps attach_image the same way as HoldOnMCPUpdate.
-type HoldOnMCPAttach struct {
-	inner draftDomain.AttachMCPImageStory
-	hold  reviewDomain.DraftChangeHold
-}
-
-func NewHoldOnMCPAttach(inner draftDomain.AttachMCPImageStory, hold reviewDomain.DraftChangeHold) (*HoldOnMCPAttach, error) {
-	if inner == nil || hold == nil {
-		return nil, fmt.Errorf("hold on MCP attach: story and hold are required")
-	}
-	return &HoldOnMCPAttach{inner: inner, hold: hold}, nil
-}
-
-func (s *HoldOnMCPAttach) Attach(ctx context.Context, in draftDomain.AttachImageInput) (draftDomain.Draft, error) {
-	draft, err := s.inner.Attach(ctx, in)
-	if err != nil {
-		return draft, err
-	}
-	return draft, s.hold.HoldForApproval(ctx, in.MemberID, in.DraftID)
-}
-
-// RequestApproval sends the member a Telegram preview of a held schedule with Approve, Skip and Edit.
-type RequestApproval struct {
+// NotifyScheduled tells the member in Telegram that a post is scheduled: preview, time, Edit link and Skip.
+// The post publishes at its time unless the member taps Skip.
+type NotifyScheduled struct {
 	access      entitlementDomain.AccessStory
 	drafts      draftDomain.Repository
 	jobs        scheduledDomain.Repository
@@ -120,147 +36,126 @@ type RequestApproval struct {
 	platformURL string
 }
 
-// NewRequestApproval builds the story; objects may be nil when draft images are not configured.
-func NewRequestApproval(access entitlementDomain.AccessStory, drafts draftDomain.Repository, jobs scheduledDomain.Repository, reviews reviewDomain.Repository,
-	objects draftDomain.ObjectStore, notifier telegramDomain.Notifier, platformURL string) (*RequestApproval, error) {
+// NewNotifyScheduled builds the story; objects may be nil when draft images are not configured.
+func NewNotifyScheduled(access entitlementDomain.AccessStory, drafts draftDomain.Repository, jobs scheduledDomain.Repository, reviews reviewDomain.Repository,
+	objects draftDomain.ObjectStore, notifier telegramDomain.Notifier, platformURL string) (*NotifyScheduled, error) {
 	if access == nil || drafts == nil || jobs == nil || reviews == nil || notifier == nil {
-		return nil, fmt.Errorf("request approval: access, drafts, schedules, reviews and notifier are required")
+		return nil, fmt.Errorf("notify scheduled: access, drafts, schedules, reviews and notifier are required")
 	}
-	return &RequestApproval{access: access, drafts: drafts, jobs: jobs, reviews: reviews, objects: objects, notifier: notifier, platformURL: strings.TrimRight(platformURL, "/")}, nil
+	return &NotifyScheduled{access: access, drafts: drafts, jobs: jobs, reviews: reviews, objects: objects, notifier: notifier, platformURL: strings.TrimRight(platformURL, "/")}, nil
 }
 
-func (s *RequestApproval) Request(ctx context.Context, memberID, draftID, note string) (reviewDomain.Approval, error) {
+func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note string) (reviewDomain.Notice, error) {
 	if _, err := requireMCPPaid(ctx, s.access, memberID); err != nil {
-		return reviewDomain.Approval{}, err
+		return reviewDomain.Notice{}, err
 	}
 	if utf8.RuneCountInString(note) > reviewDomain.MaxNoteRunes {
-		return reviewDomain.Approval{}, fmt.Errorf("note is longer than %d characters", reviewDomain.MaxNoteRunes)
+		return reviewDomain.Notice{}, fmt.Errorf("note is longer than %d characters", reviewDomain.MaxNoteRunes)
 	}
 	draft, err := s.drafts.ByID(ctx, memberID, draftID)
 	if err != nil {
-		return reviewDomain.Approval{}, ErrMCPDraftNotFound
+		return reviewDomain.Notice{}, ErrMCPDraftNotFound
 	}
-	job, err := s.heldSchedule(ctx, memberID, draftID)
+	job, err := s.activeSchedule(ctx, memberID, draftID)
 	if err != nil {
-		return reviewDomain.Approval{}, err
+		return reviewDomain.Notice{}, err
 	}
 	now := time.Now().UTC()
-	count, err := s.reviews.CountApprovalsSince(ctx, memberID, now.Add(-24*time.Hour))
+	count, err := s.reviews.CountNoticesSince(ctx, memberID, now.Add(-24*time.Hour))
 	if err != nil {
-		return reviewDomain.Approval{}, err
+		return reviewDomain.Notice{}, err
 	}
-	if count >= reviewDomain.DailyApprovalLimit {
-		return reviewDomain.Approval{}, reviewDomain.ErrDailyLimit
-	}
-	if err := s.reviews.SupersedePending(ctx, memberID, draftID, now); err != nil {
-		return reviewDomain.Approval{}, err
+	if count >= reviewDomain.DailyNoticeLimit {
+		return reviewDomain.Notice{}, reviewDomain.ErrDailyLimit
 	}
 	id, err := randomHex(16)
 	if err != nil {
-		return reviewDomain.Approval{}, err
+		return reviewDomain.Notice{}, err
 	}
-	approval := reviewDomain.Approval{ID: id, MemberID: memberID, DraftID: draftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
-		ProposedText: draft.Body, Note: strings.TrimSpace(note), Status: reviewDomain.ApprovalPending, CreatedAt: now}
-	if err := s.reviews.CreateApproval(ctx, approval); err != nil {
-		return reviewDomain.Approval{}, err
+	notice := reviewDomain.Notice{ID: id, MemberID: memberID, DraftID: draftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
+		ProposedText: draft.Body, Note: strings.TrimSpace(note), Status: reviewDomain.NoticeSent, CreatedAt: now}
+	if err := s.reviews.CreateNotice(ctx, notice); err != nil {
+		return reviewDomain.Notice{}, err
 	}
 	var photo *telegramDomain.Photo
 	if draft.Image != nil && s.objects != nil {
 		data, err := s.objects.Read(ctx, draft.Image.ObjectKey)
 		if err != nil {
-			return reviewDomain.Approval{}, fmt.Errorf("read draft image: %w", err)
+			return reviewDomain.Notice{}, fmt.Errorf("read draft image: %w", err)
 		}
 		photo = &telegramDomain.Photo{Data: data, MimeType: draft.Image.MimeType, Caption: "Image for the post below"}
 	}
-	message := telegramDomain.OutgoingMessage{Text: approvalText("Approve this LinkedIn post?", approval), Buttons: [][]telegramDomain.Button{
-		{{Text: "Approve", CallbackData: "ap:" + id + ":y"}, {Text: "Skip", CallbackData: "ap:" + id + ":n"}},
-		{{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draftID)}},
+	message := telegramDomain.OutgoingMessage{Text: noticeText("Scheduled LinkedIn post. It goes out at this time unless you tap Skip.", notice), Buttons: [][]telegramDomain.Button{
+		{{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draftID)}, {Text: "Skip", CallbackData: "sk:" + id}},
 	}}
 	if _, err := s.notifier.Notify(ctx, memberID, message, photo); err != nil {
-		_, _ = s.reviews.DecideApproval(ctx, memberID, id, reviewDomain.ApprovalSuperseded, now)
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
-			return reviewDomain.Approval{}, reviewDomain.ErrNotLinked
+			return reviewDomain.Notice{}, reviewDomain.ErrNotLinked
 		}
-		return reviewDomain.Approval{}, fmt.Errorf("send Telegram preview: %w", err)
+		return reviewDomain.Notice{}, fmt.Errorf("send Telegram notice: %w", err)
 	}
-	return approval, nil
+	return notice, nil
 }
 
-func (s *RequestApproval) heldSchedule(ctx context.Context, memberID, draftID string) (scheduledDomain.Post, error) {
+func (s *NotifyScheduled) activeSchedule(ctx context.Context, memberID, draftID string) (scheduledDomain.Post, error) {
 	jobs, err := s.jobs.ListActive(ctx, memberID)
 	if err != nil {
 		return scheduledDomain.Post{}, err
 	}
 	for _, job := range jobs {
-		if job.DraftID == draftID && job.Status == scheduledDomain.Pending {
+		if job.DraftID == draftID && (job.Status == scheduledDomain.Pending || job.Status == scheduledDomain.Retry) {
 			return job, nil
 		}
 	}
 	return scheduledDomain.Post{}, reviewDomain.ErrNotScheduled
 }
 
-// ApprovalCallbacks handles Approve ("ap:<id>:y") and Skip ("ap:<id>:n") under a preview.
-type ApprovalCallbacks struct {
+// SkipCallbacks handles Skip ("sk:<notice id>"): it cancels the post's schedule unless it already went out.
+type SkipCallbacks struct {
 	reviews reviewDomain.Repository
 	jobs    scheduledDomain.Repository
 	bot     telegramDomain.Gate
 }
 
-var _ telegramDomain.CallbackHandler = (*ApprovalCallbacks)(nil)
+var _ telegramDomain.CallbackHandler = (*SkipCallbacks)(nil)
 
-func NewApprovalCallbacks(reviews reviewDomain.Repository, jobs scheduledDomain.Repository, bot telegramDomain.Gate) (*ApprovalCallbacks, error) {
+func NewSkipCallbacks(reviews reviewDomain.Repository, jobs scheduledDomain.Repository, bot telegramDomain.Gate) (*SkipCallbacks, error) {
 	if reviews == nil || jobs == nil || bot == nil {
-		return nil, fmt.Errorf("approval callbacks: reviews, schedules and bot gate are required")
+		return nil, fmt.Errorf("skip callbacks: reviews, schedules and bot gate are required")
 	}
-	return &ApprovalCallbacks{reviews: reviews, jobs: jobs, bot: bot}, nil
+	return &SkipCallbacks{reviews: reviews, jobs: jobs, bot: bot}, nil
 }
 
-func (s *ApprovalCallbacks) Prefix() string { return "ap:" }
+func (s *SkipCallbacks) Prefix() string { return "sk:" }
 
-func (s *ApprovalCallbacks) HandleCallback(ctx context.Context, link telegramDomain.Link, callback telegramDomain.Callback) (string, error) {
-	parts := strings.Split(callback.Data, ":")
-	if len(parts) != 3 || (parts[2] != "y" && parts[2] != "n") {
-		return "This button is no longer active.", nil
-	}
-	approval, err := s.reviews.ApprovalByID(ctx, link.MemberID, parts[1])
+func (s *SkipCallbacks) HandleCallback(ctx context.Context, link telegramDomain.Link, callback telegramDomain.Callback) (string, error) {
+	notice, err := s.reviews.NoticeByID(ctx, link.MemberID, strings.TrimPrefix(callback.Data, "sk:"))
 	if err != nil {
-		return "This preview is no longer active.", nil
+		return "This post is no longer scheduled.", nil
 	}
-	switch approval.Status {
-	case reviewDomain.ApprovalPending:
-	case reviewDomain.ApprovalSuperseded:
-		return "The draft changed after this preview. Use the newest preview.", nil
+	if notice.Status == reviewDomain.NoticeSkipped {
+		return "Already skipped.", nil
+	}
+	job, err := s.jobs.ByID(ctx, link.MemberID, notice.ScheduleID)
+	if err != nil {
+		return "This post is no longer scheduled.", nil
+	}
+	switch job.Status {
+	case scheduledDomain.Pending, scheduledDomain.Retry, scheduledDomain.NeedsReview:
+	case scheduledDomain.Published, scheduledDomain.Processing:
+		return "Too late: the post is already going out on LinkedIn.", nil
 	default:
-		return "Already " + string(approval.Status) + ".", nil
+		return "This post is no longer scheduled.", nil
 	}
-	now := time.Now().UTC()
-	if parts[2] == "n" {
-		if err := s.jobs.Cancel(ctx, link.MemberID, approval.DraftID); err != nil {
-			return "", err
-		}
-		return s.decide(ctx, link, callback, approval, reviewDomain.ApprovalSkipped, "Skipped: the schedule is cancelled, the draft stays in Bloomary.")
-	}
-	job, err := s.jobs.ByID(ctx, link.MemberID, approval.ScheduleID)
-	if err != nil || job.Status != scheduledDomain.Pending {
-		return "This schedule is no longer active. Open Bloomary to schedule it again.", nil
-	}
-	if !job.ScheduledAt.After(now) {
-		return "The scheduled time has passed. Open Bloomary to pick a new time.", nil
-	}
-	if err := s.jobs.Approve(ctx, link.MemberID, approval.ScheduleID); errors.Is(err, sql.ErrNoRows) {
-		return "This schedule is no longer active. Open Bloomary to schedule it again.", nil
-	} else if err != nil {
+	if err := s.jobs.Cancel(ctx, link.MemberID, notice.DraftID); err != nil {
 		return "", err
 	}
-	return s.decide(ctx, link, callback, approval, reviewDomain.ApprovalApproved, "Approved: posts "+formatPostTime(job.ScheduledAt)+".")
-}
-
-func (s *ApprovalCallbacks) decide(ctx context.Context, link telegramDomain.Link, callback telegramDomain.Callback, approval reviewDomain.Approval, status reviewDomain.ApprovalStatus, result string) (string, error) {
-	if _, err := s.reviews.DecideApproval(ctx, link.MemberID, approval.ID, status, time.Now().UTC()); err != nil {
+	if _, err := s.reviews.SkipNotice(ctx, link.MemberID, notice.ID, time.Now().UTC()); err != nil {
 		return "", err
 	}
-	if err := s.bot.EditMessageText(ctx, callback.ChatID, callback.MessageID, approvalText(result, approval)); err != nil {
-		logger.FromContext(ctx).WithError(err).Info("telegram_edit_approval_failed")
+	result := "Skipped: the schedule is cancelled, the draft stays in Bloomary."
+	if err := s.bot.EditMessageText(ctx, callback.ChatID, callback.MessageID, noticeText(result, notice)); err != nil {
+		logger.FromContext(ctx).WithError(err).Info("telegram_edit_notice_failed")
 	}
 	return result, nil
 }
@@ -372,18 +267,19 @@ func (s *SuggestionCallbacks) HandleCallback(ctx context.Context, link telegramD
 	return "Rated " + parts[2] + " of 5.", nil
 }
 
-// ListFeedback returns approvals with the member's edits and suggestion ratings, so the AI app can learn.
+// ListFeedback returns what happened to notified posts (with the member's edits) and suggestion ratings, so the AI app can learn.
 type ListFeedback struct {
 	access  entitlementDomain.AccessStory
 	reviews reviewDomain.Repository
 	drafts  draftDomain.Repository
+	jobs    scheduledDomain.Repository
 }
 
-func NewListFeedback(access entitlementDomain.AccessStory, reviews reviewDomain.Repository, drafts draftDomain.Repository) (*ListFeedback, error) {
-	if access == nil || reviews == nil || drafts == nil {
-		return nil, fmt.Errorf("list feedback: access, reviews and drafts are required")
+func NewListFeedback(access entitlementDomain.AccessStory, reviews reviewDomain.Repository, drafts draftDomain.Repository, jobs scheduledDomain.Repository) (*ListFeedback, error) {
+	if access == nil || reviews == nil || drafts == nil || jobs == nil {
+		return nil, fmt.Errorf("list feedback: access, reviews, drafts and schedules are required")
 	}
-	return &ListFeedback{access: access, reviews: reviews, drafts: drafts}, nil
+	return &ListFeedback{access: access, reviews: reviews, drafts: drafts, jobs: jobs}, nil
 }
 
 func (s *ListFeedback) List(ctx context.Context, memberID string, since time.Time) (reviewDomain.Feedback, error) {
@@ -393,7 +289,7 @@ func (s *ListFeedback) List(ctx context.Context, memberID string, since time.Tim
 	if since.IsZero() {
 		since = time.Now().UTC().Add(-reviewDomain.FeedbackWindow)
 	}
-	approvals, err := s.reviews.ListApprovals(ctx, memberID, since)
+	notices, err := s.reviews.ListNotices(ctx, memberID, since)
 	if err != nil {
 		return reviewDomain.Feedback{}, err
 	}
@@ -401,29 +297,44 @@ func (s *ListFeedback) List(ctx context.Context, memberID string, since time.Tim
 	if err != nil {
 		return reviewDomain.Feedback{}, err
 	}
-	out := reviewDomain.Feedback{Approvals: make([]reviewDomain.ApprovalFeedback, 0, len(approvals)), Suggestions: suggestions}
-	for _, approval := range approvals {
-		item := reviewDomain.ApprovalFeedback{Approval: approval}
-		if approval.Status == reviewDomain.ApprovalApproved {
-			if draft, err := s.drafts.ByID(ctx, memberID, approval.DraftID); err == nil {
-				item.FinalText = draft.Body
-				item.Edited = draft.Body != approval.ProposedText
-				if item.Edited {
-					item.Diff = reviewDomain.WordDiff(approval.ProposedText, draft.Body)
-				}
+	out := reviewDomain.Feedback{Posts: make([]reviewDomain.PostFeedback, 0, len(notices)), Suggestions: suggestions}
+	for _, notice := range notices {
+		item := reviewDomain.PostFeedback{Notice: notice, PostStatus: s.postStatus(ctx, notice)}
+		if draft, err := s.drafts.ByID(ctx, memberID, notice.DraftID); err == nil {
+			item.FinalText = draft.Body
+			item.Edited = draft.Body != notice.ProposedText
+			if item.Edited {
+				item.Diff = reviewDomain.WordDiff(notice.ProposedText, draft.Body)
 			}
 		}
-		out.Approvals = append(out.Approvals, item)
+		out.Posts = append(out.Posts, item)
 	}
 	return out, nil
 }
 
-func approvalText(header string, approval reviewDomain.Approval) string {
-	head := header + "\nScheduled: " + formatPostTime(approval.ScheduledAt)
-	if approval.Note != "" {
-		head += "\nNote: " + approval.Note
+// postStatus is "skipped", "scheduled" while the post is still waiting, or the schedule's final status.
+func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notice) string {
+	if notice.Status == reviewDomain.NoticeSkipped {
+		return string(reviewDomain.NoticeSkipped)
 	}
-	return fitTelegram(head+"\n\n", approval.ProposedText, "\n\n(Shortened here; open Bloomary for the full text.)")
+	job, err := s.jobs.ByID(ctx, notice.MemberID, notice.ScheduleID)
+	if err != nil {
+		return "unknown"
+	}
+	switch job.Status {
+	case scheduledDomain.Pending, scheduledDomain.Retry, scheduledDomain.Processing:
+		return "scheduled"
+	default:
+		return string(job.Status)
+	}
+}
+
+func noticeText(header string, notice reviewDomain.Notice) string {
+	head := header + "\nScheduled: " + formatPostTime(notice.ScheduledAt)
+	if notice.Note != "" {
+		head += "\nNote: " + notice.Note
+	}
+	return fitTelegram(head+"\n\n", notice.ProposedText, "\n\n(Shortened here; open Bloomary for the full text.)")
 }
 
 // fitTelegram appends body to head, cutting body (and adding suffix) so the message fits Telegram's limit.

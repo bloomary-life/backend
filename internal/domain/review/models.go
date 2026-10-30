@@ -9,45 +9,44 @@ import (
 var (
 	ErrNotFound      = errors.New("review item not found")
 	ErrDailyLimit    = errors.New("daily Telegram message limit for this member reached")
-	ErrNotScheduled  = errors.New("schedule the draft with schedule_draft before requesting approval")
+	ErrNotScheduled  = errors.New("schedule the draft with schedule_draft before calling notify_scheduled")
 	ErrNotLinked     = errors.New("the member has not linked Telegram yet (Bloomary → Settings → Telegram)")
 	ErrUnknownKind   = errors.New(`kind must be "comment"`)
 	ErrInvalidTarget = errors.New("target_url must be an http or https URL")
 )
 
 const (
-	DailyApprovalLimit   = 30
+	DailyNoticeLimit     = 30
 	DailySuggestionLimit = 50
 	MaxSuggestionRunes   = 3000
 	MaxContextRunes      = 1000
-	MaxNoteRunes         = 500
+	MaxNoteRunes         = 1000
 	// CopyTextLimit is the Bot API limit for a CopyTextButton (1-256 characters).
 	CopyTextLimit = 256
 	// FeedbackWindow is how far back list_feedback looks when no since is given.
 	FeedbackWindow = 30 * 24 * time.Hour
 )
 
-type ApprovalStatus string
+type NoticeStatus string
 
 const (
-	ApprovalPending    ApprovalStatus = "pending"
-	ApprovalApproved   ApprovalStatus = "approved"
-	ApprovalSkipped    ApprovalStatus = "skipped"
-	ApprovalSuperseded ApprovalStatus = "superseded"
+	NoticeSent    NoticeStatus = "sent"
+	NoticeSkipped NoticeStatus = "skipped"
 )
 
-// Approval is one Telegram preview of an MCP-scheduled draft; ProposedText is the draft text the AI app wrote.
-type Approval struct {
+// Notice is one Telegram preview of an MCP-scheduled post; ProposedText is the draft text the AI app wrote.
+// The post publishes at ScheduledAt unless the member taps Skip.
+type Notice struct {
 	CreatedAt    time.Time
 	ScheduledAt  time.Time
-	DecidedAt    *time.Time
+	SkippedAt    *time.Time
 	ID           string
 	MemberID     string
 	DraftID      string
 	ScheduleID   string
 	ProposedText string
 	Note         string
-	Status       ApprovalStatus
+	Status       NoticeStatus
 }
 
 // Suggestion is a comment idea sent to the member's Telegram, with the member's rating and posted flag.
@@ -72,16 +71,18 @@ type SuggestionInput struct {
 	Context   string
 }
 
-// ApprovalFeedback adds the text as it is now; Diff marks the member's edits as [-removed-]{+added+}.
-type ApprovalFeedback struct {
-	Approval
-	FinalText string
-	Diff      string
-	Edited    bool
+// PostFeedback adds what happened to the post (scheduled, published, skipped, failed, ...) and the
+// draft text as it is now; Diff marks the member's edits as [-removed-]{+added+}.
+type PostFeedback struct {
+	Notice
+	PostStatus string
+	FinalText  string
+	Diff       string
+	Edited     bool
 }
 
 type Feedback struct {
-	Approvals   []ApprovalFeedback
+	Posts       []PostFeedback
 	Suggestions []Suggestion
 }
 

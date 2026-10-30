@@ -419,7 +419,7 @@ func mcpScopeDescription(scopes []string) string {
 		permissions = append(permissions, "list and read drafts")
 	}
 	if containsString(scopes, "drafts:write") {
-		permissions = append(permissions, "create, update, illustrate and schedule drafts (posting waits for your approval in Telegram)")
+		permissions = append(permissions, "create, update, illustrate and schedule drafts (you get a Telegram preview with Skip)")
 	}
 	if containsString(scopes, "insights:read") {
 		permissions = append(permissions, "read your insights and feedback")
