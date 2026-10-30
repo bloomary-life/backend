@@ -491,7 +491,7 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
-	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo, store.mcpOAuthState}
+	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo, store.mcpOAuthState, store.scheduledPostRepo}
 	accountDeletion, err := stories.NewAccountDeletionStoryWithMemberData(store.dailyRepo, store.draftRepo, store.accountRepo, memberData, draftImages)
 	if err != nil {
 		return v0.ApplicationStories{}, err

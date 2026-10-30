@@ -125,6 +125,14 @@ func (r *SQLiteRepository) Cancel(ctx context.Context, memberID, draftID string)
 	return n > 0, err
 }
 
+// DeleteByMemberID removes all of the member's scheduled posts (account deletion).
+func (r *SQLiteRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM scheduled_posts WHERE member_id=?`, memberID); err != nil {
+		return fmt.Errorf("delete scheduled posts member_id=%q: %w", memberID, err)
+	}
+	return nil
+}
+
 type scanner interface{ Scan(...any) error }
 
 func scan(row scanner) (domain.Post, error) {

@@ -37,3 +37,20 @@ func TestCancelRemovesDraftFromActiveSchedules(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.Cancelled, job.Status)
 }
+
+func TestDeleteByMemberIDRemovesScheduledPosts(t *testing.T) {
+	// Verifies: BE-015
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+	repo, err := NewSQLiteRepository(db)
+	require.NoError(t, err)
+	ctx := context.Background()
+	post, err := repo.Schedule(ctx, domain.CreateInput{MemberID: "member-1", DraftID: "draft-1", ScheduledAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeleteByMemberID(ctx, "member-1"))
+
+	_, err = repo.ByID(ctx, "member-1", post.ID)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}

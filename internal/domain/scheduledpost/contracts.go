@@ -14,6 +14,7 @@ type Repository interface {
 	Retry(context.Context, string, time.Time, string) error
 	// Cancel reports whether a pending, retry or needs_review job was cancelled.
 	Cancel(context.Context, string, string) (bool, error)
+	DeleteByMemberID(ctx context.Context, memberID string) error
 }
 
 type Story interface {
