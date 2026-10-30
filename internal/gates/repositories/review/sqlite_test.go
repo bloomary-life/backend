@@ -97,3 +97,22 @@ func TestEditRequestIsFoundByPreviewMessageAndAppliedOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Shorter, drop the last line", all[0].Text)
 }
+
+func TestNewSQLiteRepositoryAddsMessageIDOnce(t *testing.T) {
+	// Verifies: BE-017
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec(`CREATE TABLE scheduled_post_notices (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, draft_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
+		proposed_text TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, scheduled_at TEXT NOT NULL, created_at TEXT NOT NULL, skipped_at TEXT)`)
+	require.NoError(t, err)
+
+	_, err = NewSQLiteRepository(db)
+	require.NoError(t, err)
+	_, err = NewSQLiteRepository(db)
+	require.NoError(t, err)
+	var columns int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('scheduled_post_notices') WHERE name='message_id'`).Scan(&columns))
+	require.Equal(t, 1, columns)
+}

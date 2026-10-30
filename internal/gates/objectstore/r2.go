@@ -46,7 +46,11 @@ type R2ObjectStore struct {
 	environment    string
 	presignTTL     time.Duration
 	maxUploadBytes int64
+	client         *http.Client
 }
+
+// r2RequestTimeout bounds one R2 request, so a stalled connection cannot hold a caller (e.g. MCP attach_image).
+const r2RequestTimeout = 60 * time.Second
 
 var _ draftDomain.ObjectStore = (*R2ObjectStore)(nil)
 
@@ -89,6 +93,7 @@ func NewR2ObjectStore(config R2Config) (*R2ObjectStore, error) {
 		environment:    pathPart(environment),
 		presignTTL:     presignTTL,
 		maxUploadBytes: maxBytes,
+		client:         &http.Client{Timeout: r2RequestTimeout},
 	}, nil
 }
 
@@ -105,7 +110,7 @@ func (s *R2ObjectStore) Stat(ctx context.Context, objectKey string) (draftDomain
 	if err != nil {
 		return draftDomain.ObjectMetadata{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return draftDomain.ObjectMetadata{}, err
 	}
@@ -140,7 +145,7 @@ func (s *R2ObjectStore) Copy(ctx context.Context, sourceKey, destinationKey stri
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -164,7 +169,7 @@ func (s *R2ObjectStore) Put(ctx context.Context, objectKey, contentType string, 
 	}
 	req.Body = io.NopCloser(bytes.NewReader(data))
 	req.ContentLength = int64(len(data))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -181,7 +186,7 @@ func (s *R2ObjectStore) Delete(ctx context.Context, objectKey string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -198,7 +203,7 @@ func (s *R2ObjectStore) Read(ctx context.Context, objectKey string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -45,8 +45,16 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 			return nil, fmt.Errorf("create review tables: %w", err)
 		}
 	}
-	// Added after the first release; the error on an existing column is expected.
-	_, _ = db.Exec(`ALTER TABLE scheduled_post_notices ADD COLUMN message_id INTEGER NOT NULL DEFAULT 0`)
+	// Added after the first release: add the column only when it is missing, so any other error stops startup.
+	var hasMessageID int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('scheduled_post_notices') WHERE name='message_id'`).Scan(&hasMessageID); err != nil {
+		return nil, fmt.Errorf("read scheduled_post_notices columns: %w", err)
+	}
+	if hasMessageID == 0 {
+		if _, err := db.Exec(`ALTER TABLE scheduled_post_notices ADD COLUMN message_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return nil, fmt.Errorf("add scheduled_post_notices.message_id: %w", err)
+		}
+	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_message ON scheduled_post_notices(member_id, message_id)`); err != nil {
 		return nil, fmt.Errorf("create review tables: %w", err)
 	}

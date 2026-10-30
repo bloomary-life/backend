@@ -104,10 +104,12 @@ func publicAddressOnly(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// isSharedOrReserved covers ranges Go's helpers do not: carrier-grade NAT (100.64.0.0/10)
-// and the IPv4 benchmark, documentation and reserved blocks.
+// isSharedOrReserved covers ranges Go's helpers do not: "this network" (0.0.0.0/8), carrier-grade NAT
+// (100.64.0.0/10), the IPv4 benchmark, documentation and reserved blocks, and IPv6 ranges that can carry
+// an IPv4 address or are not publicly routed (NAT64, 6to4, Teredo, site-local, discard, documentation).
 func isSharedOrReserved(ip net.IP) bool {
-	for _, cidr := range []string{"100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "64:ff9b::/96"} {
+	for _, cidr := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+		"64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "2002::/16", "fec0::/10"} {
 		_, block, _ := net.ParseCIDR(cidr)
 		if block.Contains(ip) {
 			return true

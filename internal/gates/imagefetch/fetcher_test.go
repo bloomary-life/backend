@@ -37,3 +37,12 @@ func TestFetchDownloadsImageFromHTTPS(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "\x89PNG\r\n\x1a\n", string(data))
 }
+
+func TestPublicAddressOnlyRefusesSpecialPurposeRanges(t *testing.T) {
+	// Verifies: BE-011
+	for _, address := range []string{"0.1.2.3:443", "[2002:7f00:1::1]:443", "[64:ff9b:1::1]:443", "[fec0::1]:443", "[100::1]:443", "[2001:db8::1]:443", "[2001::1]:443"} {
+		require.ErrorIs(t, publicAddressOnly("tcp", address, nil), errBlockedAddress, address)
+	}
+	require.NoError(t, publicAddressOnly("tcp", "[2606:4700::1]:443", nil))
+	require.NoError(t, publicAddressOnly("tcp", "1.1.1.1:443", nil))
+}
