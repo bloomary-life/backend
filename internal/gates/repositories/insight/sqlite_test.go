@@ -106,3 +106,22 @@ func TestInsightKeepsTrendContext(t *testing.T) {
 	require.Nil(t, list[0].Trend)
 	require.Equal(t, trend, list[1].Trend)
 }
+
+func TestReserveVoiceKeepsAttemptsFor24HoursOnly(t *testing.T) {
+	// Verifies: BE-021
+	repo := newRepo(t)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-48 * time.Hour)
+	ok, err := repo.ReserveVoice(ctx, "member-1", 30, start.Add(-24*time.Hour), start)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	now := time.Now().UTC()
+	ok, err = repo.ReserveVoice(ctx, "member-2", 5, now.Add(-24*time.Hour), now)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	var rows int
+	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM member_voice_attempts`).Scan(&rows))
+	require.Equal(t, 1, rows, "attempts older than 24 hours are deleted")
+}

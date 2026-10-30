@@ -126,6 +126,11 @@ func (r *SQLiteRepository) CountSince(ctx context.Context, memberID string, sour
 // ReserveVoice is one INSERT ... SELECT, so parallel updates cannot pass the limit together.
 func (r *SQLiteRepository) ReserveVoice(ctx context.Context, memberID string, seconds int, since, at time.Time) (bool, error) {
 	from := since.UTC().Format(time.RFC3339Nano)
+	// Attempts older than the window are no longer needed for the cap (privacy policy: kept 24 hours).
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM member_voice_attempts WHERE created_at<?`, from); err != nil {
+		return false, fmt.Errorf("prune voice attempts: %w", err)
+	}
+
 	result, err := r.db.ExecContext(ctx, `INSERT INTO member_voice_attempts(member_id,seconds,created_at)
 		SELECT ?,?,? WHERE (SELECT COUNT(*) FROM member_voice_attempts WHERE member_id=? AND created_at>=?) < ?
 		AND (SELECT COALESCE(SUM(seconds),0) FROM member_voice_attempts WHERE member_id=? AND created_at>=?) + ? <= ?`,

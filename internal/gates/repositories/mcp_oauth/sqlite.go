@@ -57,6 +57,16 @@ func (s *SQLiteStateStore) RevokeGrant(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteByMemberID removes the member's connector grants and app sessions (account deletion).
+func (s *SQLiteStateStore) DeleteByMemberID(ctx context.Context, memberID string) error {
+	for _, query := range []string{`DELETE FROM mcp_grants WHERE member_id=?`, `DELETE FROM app_sessions WHERE member_id=?`} {
+		if _, err := s.db.ExecContext(ctx, query, memberID); err != nil {
+			return fmt.Errorf("delete MCP grants and sessions member_id=%q: %w", memberID, err)
+		}
+	}
+	return nil
+}
+
 func (s *SQLiteStateStore) ResolveMember(ctx context.Context, credential string) (string, error) {
 	if credential == "" {
 		return "", errors.New("app session credential is required")
