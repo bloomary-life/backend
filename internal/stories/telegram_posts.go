@@ -27,7 +27,7 @@ const (
 	plannedMaxRows = 20
 )
 
-// postTimeZone is where the member reads post times in the bot (Kat, Cyprus); falls back to UTC.
+// postTimeZone is the zone the bot shows post times in (Cyprus for every member until members can set their own); falls back to UTC.
 var postTimeZone = loadZone("Europe/Nicosia")
 
 func loadZone(name string) *time.Location {
