@@ -116,9 +116,13 @@ func (r *SQLiteRepository) Retry(ctx context.Context, id string, next time.Time,
 }
 
 // Cancel leaves processing jobs alone: the worker may already be posting them.
-func (r *SQLiteRepository) Cancel(ctx context.Context, memberID, draftID string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_posts SET status='cancelled',updated_at=? WHERE member_id=? AND draft_id=? AND status IN ('pending','retry','needs_review')`, time.Now().UTC().Format(time.RFC3339Nano), memberID, draftID)
-	return err
+func (r *SQLiteRepository) Cancel(ctx context.Context, memberID, draftID string) (bool, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE scheduled_posts SET status='cancelled',updated_at=? WHERE member_id=? AND draft_id=? AND status IN ('pending','retry','needs_review')`, time.Now().UTC().Format(time.RFC3339Nano), memberID, draftID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n > 0, err
 }
 
 type scanner interface{ Scan(...any) error }

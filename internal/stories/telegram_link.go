@@ -69,19 +69,21 @@ func NewTelegramNotifier(links telegramDomain.LinkRepository, bot telegramDomain
 	return &telegramNotifier{links: links, bot: bot}, nil
 }
 
-func (s *telegramNotifier) Notify(ctx context.Context, memberID string, message telegramDomain.OutgoingMessage, photo *telegramDomain.Photo) (int64, error) {
+func (s *telegramNotifier) Notify(ctx context.Context, memberID string, message telegramDomain.OutgoingMessage, photo *telegramDomain.Photo) (telegramDomain.Delivery, error) {
+	var sent telegramDomain.Delivery
 	link, err := s.links.ByMemberID(ctx, memberID)
 	if err != nil {
-		return 0, err
+		return sent, err
 	}
 	if photo != nil {
 		photo.ChatID = link.ChatID
-		if _, err := s.bot.SendPhoto(ctx, *photo); err != nil {
-			return 0, err
+		if sent.PhotoMessageID, err = s.bot.SendPhoto(ctx, *photo); err != nil {
+			return sent, err
 		}
 	}
 	message.ChatID = link.ChatID
-	return s.bot.SendMessage(ctx, message)
+	sent.MessageID, err = s.bot.SendMessage(ctx, message)
+	return sent, err
 }
 
 func randomToken(size int) (string, error) {

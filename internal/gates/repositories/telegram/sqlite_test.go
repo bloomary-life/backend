@@ -42,3 +42,25 @@ func TestLinkAttemptIsConsumedOnceAndLinkReplacesOlderLink(t *testing.T) {
 	require.Equal(t, int64(200), link.TelegramUserID)
 	require.Equal(t, "new", link.Username)
 }
+
+func TestMarkUpdateSeenDropsRepeatsAndForgetsOldIDs(t *testing.T) {
+	// Verifies: BE-022
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	repo, err := NewSQLiteRepository(db)
+	require.NoError(t, err)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	fresh, err := repo.MarkUpdateSeen(ctx, 7, now)
+	require.NoError(t, err)
+	require.True(t, fresh)
+	fresh, err = repo.MarkUpdateSeen(ctx, 7, now.Add(time.Minute))
+	require.NoError(t, err)
+	require.False(t, fresh)
+	fresh, err = repo.MarkUpdateSeen(ctx, 7, now.Add(telegramDomain.UpdateMemory+2*time.Minute))
+	require.NoError(t, err)
+	require.True(t, fresh, "IDs older than UpdateMemory are forgotten")
+}

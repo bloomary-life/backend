@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	noticeColumns     = `id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,COALESCE(skipped_at,''),message_id`
+	noticeColumns     = `id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,COALESCE(skipped_at,''),message_id,photo_message_id,requested`
 	suggestionColumns = `id,member_id,kind,target_url,body,context,rating,created_at,COALESCE(rated_at,''),COALESCE(posted_at,'')`
 	editColumns       = `id,member_id,draft_id,notice_id,body,source,created_at,COALESCE(applied_at,'')`
 )
@@ -45,26 +45,41 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 			return nil, fmt.Errorf("create review tables: %w", err)
 		}
 	}
-	// Added after the first release: add the column only when it is missing, so any other error stops startup.
-	var hasMessageID int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('scheduled_post_notices') WHERE name='message_id'`).Scan(&hasMessageID); err != nil {
-		return nil, fmt.Errorf("read scheduled_post_notices columns: %w", err)
-	}
-	if hasMessageID == 0 {
-		if _, err := db.Exec(`ALTER TABLE scheduled_post_notices ADD COLUMN message_id INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return nil, fmt.Errorf("add scheduled_post_notices.message_id: %w", err)
+	// Added after the first release: add a column only when it is missing, so any other error stops startup.
+	for _, column := range []string{"message_id", "photo_message_id", "requested"} {
+		if err := addNoticeColumn(db, column); err != nil {
+			return nil, err
 		}
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_message ON scheduled_post_notices(member_id, message_id)`); err != nil {
-		return nil, fmt.Errorf("create review tables: %w", err)
+	for _, query := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_message ON scheduled_post_notices(member_id, message_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_post_notices_member_photo ON scheduled_post_notices(member_id, photo_message_id)`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			return nil, fmt.Errorf("create review tables: %w", err)
+		}
 	}
 
 	return &SQLiteRepository{db: db}, nil
 }
 
+func addNoticeColumn(db *sql.DB, column string) error {
+	var exists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('scheduled_post_notices') WHERE name=?`, column).Scan(&exists); err != nil {
+		return fmt.Errorf("read scheduled_post_notices columns: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE scheduled_post_notices ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add scheduled_post_notices.%s: %w", column, err)
+	}
+	return nil
+}
+
 func (r *SQLiteRepository) CreateNotice(ctx context.Context, n reviewDomain.Notice) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO scheduled_post_notices(id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		n.ID, n.MemberID, n.DraftID, n.ScheduleID, n.ProposedText, n.Note, string(n.Status), formatTime(n.ScheduledAt), formatTime(n.CreatedAt))
+	_, err := r.db.ExecContext(ctx, `INSERT INTO scheduled_post_notices(id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,requested) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		n.ID, n.MemberID, n.DraftID, n.ScheduleID, n.ProposedText, n.Note, string(n.Status), formatTime(n.ScheduledAt), formatTime(n.CreatedAt), n.Requested)
 	if err != nil {
 		return fmt.Errorf("insert scheduled post notice member_id=%q: %w", n.MemberID, err)
 	}
@@ -100,12 +115,18 @@ func (r *SQLiteRepository) ListNotices(ctx context.Context, memberID string, sin
 	return out, rows.Err()
 }
 
-func (r *SQLiteRepository) CountNoticesSince(ctx context.Context, memberID string, since time.Time) (int, error) {
-	return r.count(ctx, `SELECT COUNT(*) FROM scheduled_post_notices WHERE member_id=? AND created_at>=?`, memberID, since)
+func (r *SQLiteRepository) CountNoticesSince(ctx context.Context, memberID string, since time.Time, requested bool) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM scheduled_post_notices WHERE member_id=? AND created_at>=? AND requested=?`, memberID, formatTime(since), requested).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count review rows member_id=%q: %w", memberID, err)
+	}
+
+	return n, nil
 }
 
-func (r *SQLiteRepository) SetNoticeMessage(ctx context.Context, memberID, id string, messageID int64) error {
-	return r.updateOne(ctx, `UPDATE scheduled_post_notices SET message_id=? WHERE member_id=? AND id=?`, messageID, memberID, id)
+func (r *SQLiteRepository) SetNoticeMessage(ctx context.Context, memberID, id string, messageID, photoMessageID int64) error {
+	return r.updateOne(ctx, `UPDATE scheduled_post_notices SET message_id=?,photo_message_id=? WHERE member_id=? AND id=?`, messageID, photoMessageID, memberID, id)
 }
 
 func (r *SQLiteRepository) NoticeByMessage(ctx context.Context, memberID string, messageID int64) (reviewDomain.Notice, error) {
@@ -113,7 +134,7 @@ func (r *SQLiteRepository) NoticeByMessage(ctx context.Context, memberID string,
 		return reviewDomain.Notice{}, reviewDomain.ErrNotFound
 	}
 
-	return scanNotice(r.db.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM scheduled_post_notices WHERE member_id=? AND message_id=? ORDER BY created_at DESC LIMIT 1`, memberID, messageID))
+	return scanNotice(r.db.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM scheduled_post_notices WHERE member_id=? AND (message_id=? OR photo_message_id=?) ORDER BY created_at DESC LIMIT 1`, memberID, messageID, messageID))
 }
 
 func (r *SQLiteRepository) CreateEditRequest(ctx context.Context, e reviewDomain.EditRequest) error {
@@ -182,8 +203,13 @@ func (r *SQLiteRepository) RateSuggestion(ctx context.Context, memberID, id stri
 	return r.updateOne(ctx, `UPDATE comment_suggestions SET rating=?,rated_at=? WHERE member_id=? AND id=?`, rating, formatTime(at), memberID, id)
 }
 
-func (r *SQLiteRepository) MarkSuggestionPosted(ctx context.Context, memberID, id string, at time.Time) error {
-	return r.updateOne(ctx, `UPDATE comment_suggestions SET posted_at=? WHERE member_id=? AND id=?`, formatTime(at), memberID, id)
+func (r *SQLiteRepository) MarkSuggestionPosted(ctx context.Context, memberID, id string, at time.Time) (reviewDomain.Suggestion, error) {
+	s, err := scanSuggestion(r.db.QueryRowContext(ctx, `UPDATE comment_suggestions SET posted_at=? WHERE member_id=? AND id=? RETURNING `+suggestionColumns, formatTime(at), memberID, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrNotFound
+	}
+
+	return s, err
 }
 
 func (r *SQLiteRepository) ListSuggestions(ctx context.Context, memberID string, since time.Time) ([]reviewDomain.Suggestion, error) {
@@ -247,7 +273,7 @@ type scanner interface{ Scan(...any) error }
 func scanNotice(row scanner) (reviewDomain.Notice, error) {
 	var n reviewDomain.Notice
 	var status, scheduledAt, createdAt, skippedAt string
-	err := row.Scan(&n.ID, &n.MemberID, &n.DraftID, &n.ScheduleID, &n.ProposedText, &n.Note, &status, &scheduledAt, &createdAt, &skippedAt, &n.MessageID)
+	err := row.Scan(&n.ID, &n.MemberID, &n.DraftID, &n.ScheduleID, &n.ProposedText, &n.Note, &status, &scheduledAt, &createdAt, &skippedAt, &n.MessageID, &n.PhotoMessageID, &n.Requested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return reviewDomain.Notice{}, reviewDomain.ErrNotFound
 	}

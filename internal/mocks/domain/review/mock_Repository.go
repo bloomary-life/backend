@@ -121,8 +121,8 @@ func (_c *MockRepository_CountEditRequestsSince_Call) RunAndReturn(run func(ctx 
 }
 
 // CountNoticesSince provides a mock function for the type MockRepository
-func (_mock *MockRepository) CountNoticesSince(ctx context.Context, memberID string, since time.Time) (int, error) {
-	ret := _mock.Called(ctx, memberID, since)
+func (_mock *MockRepository) CountNoticesSince(ctx context.Context, memberID string, since time.Time, requested bool) (int, error) {
+	ret := _mock.Called(ctx, memberID, since, requested)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CountNoticesSince")
@@ -130,16 +130,16 @@ func (_mock *MockRepository) CountNoticesSince(ctx context.Context, memberID str
 
 	var r0 int
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) (int, error)); ok {
-		return returnFunc(ctx, memberID, since)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time, bool) (int, error)); ok {
+		return returnFunc(ctx, memberID, since, requested)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time) int); ok {
-		r0 = returnFunc(ctx, memberID, since)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, time.Time, bool) int); ok {
+		r0 = returnFunc(ctx, memberID, since, requested)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, time.Time) error); ok {
-		r1 = returnFunc(ctx, memberID, since)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, time.Time, bool) error); ok {
+		r1 = returnFunc(ctx, memberID, since, requested)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -155,11 +155,12 @@ type MockRepository_CountNoticesSince_Call struct {
 //   - ctx context.Context
 //   - memberID string
 //   - since time.Time
-func (_e *MockRepository_Expecter) CountNoticesSince(ctx any, memberID any, since any) *MockRepository_CountNoticesSince_Call {
-	return &MockRepository_CountNoticesSince_Call{Call: _e.mock.On("CountNoticesSince", ctx, memberID, since)}
+//   - requested bool
+func (_e *MockRepository_Expecter) CountNoticesSince(ctx any, memberID any, since any, requested any) *MockRepository_CountNoticesSince_Call {
+	return &MockRepository_CountNoticesSince_Call{Call: _e.mock.On("CountNoticesSince", ctx, memberID, since, requested)}
 }
 
-func (_c *MockRepository_CountNoticesSince_Call) Run(run func(ctx context.Context, memberID string, since time.Time)) *MockRepository_CountNoticesSince_Call {
+func (_c *MockRepository_CountNoticesSince_Call) Run(run func(ctx context.Context, memberID string, since time.Time, requested bool)) *MockRepository_CountNoticesSince_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -173,10 +174,15 @@ func (_c *MockRepository_CountNoticesSince_Call) Run(run func(ctx context.Contex
 		if args[2] != nil {
 			arg2 = args[2].(time.Time)
 		}
+		var arg3 bool
+		if args[3] != nil {
+			arg3 = args[3].(bool)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -187,7 +193,7 @@ func (_c *MockRepository_CountNoticesSince_Call) Return(n int, err error) *MockR
 	return _c
 }
 
-func (_c *MockRepository_CountNoticesSince_Call) RunAndReturn(run func(ctx context.Context, memberID string, since time.Time) (int, error)) *MockRepository_CountNoticesSince_Call {
+func (_c *MockRepository_CountNoticesSince_Call) RunAndReturn(run func(ctx context.Context, memberID string, since time.Time, requested bool) (int, error)) *MockRepository_CountNoticesSince_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -793,20 +799,29 @@ func (_c *MockRepository_MarkEditApplied_Call) RunAndReturn(run func(ctx context
 }
 
 // MarkSuggestionPosted provides a mock function for the type MockRepository
-func (_mock *MockRepository) MarkSuggestionPosted(ctx context.Context, memberID string, id string, at time.Time) error {
+func (_mock *MockRepository) MarkSuggestionPosted(ctx context.Context, memberID string, id string, at time.Time) (review.Suggestion, error) {
 	ret := _mock.Called(ctx, memberID, id, at)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarkSuggestionPosted")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) error); ok {
+	var r0 review.Suggestion
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) (review.Suggestion, error)); ok {
+		return returnFunc(ctx, memberID, id, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) review.Suggestion); ok {
 		r0 = returnFunc(ctx, memberID, id, at)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(review.Suggestion)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, time.Time) error); ok {
+		r1 = returnFunc(ctx, memberID, id, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockRepository_MarkSuggestionPosted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkSuggestionPosted'
@@ -851,12 +866,12 @@ func (_c *MockRepository_MarkSuggestionPosted_Call) Run(run func(ctx context.Con
 	return _c
 }
 
-func (_c *MockRepository_MarkSuggestionPosted_Call) Return(err error) *MockRepository_MarkSuggestionPosted_Call {
-	_c.Call.Return(err)
+func (_c *MockRepository_MarkSuggestionPosted_Call) Return(suggestion review.Suggestion, err error) *MockRepository_MarkSuggestionPosted_Call {
+	_c.Call.Return(suggestion, err)
 	return _c
 }
 
-func (_c *MockRepository_MarkSuggestionPosted_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, at time.Time) error) *MockRepository_MarkSuggestionPosted_Call {
+func (_c *MockRepository_MarkSuggestionPosted_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, at time.Time) (review.Suggestion, error)) *MockRepository_MarkSuggestionPosted_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1081,16 +1096,16 @@ func (_c *MockRepository_RateSuggestion_Call) RunAndReturn(run func(ctx context.
 }
 
 // SetNoticeMessage provides a mock function for the type MockRepository
-func (_mock *MockRepository) SetNoticeMessage(ctx context.Context, memberID string, id string, messageID int64) error {
-	ret := _mock.Called(ctx, memberID, id, messageID)
+func (_mock *MockRepository) SetNoticeMessage(ctx context.Context, memberID string, id string, messageID int64, photoMessageID int64) error {
+	ret := _mock.Called(ctx, memberID, id, messageID, photoMessageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetNoticeMessage")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int64) error); ok {
-		r0 = returnFunc(ctx, memberID, id, messageID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int64, int64) error); ok {
+		r0 = returnFunc(ctx, memberID, id, messageID, photoMessageID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1107,11 +1122,12 @@ type MockRepository_SetNoticeMessage_Call struct {
 //   - memberID string
 //   - id string
 //   - messageID int64
-func (_e *MockRepository_Expecter) SetNoticeMessage(ctx any, memberID any, id any, messageID any) *MockRepository_SetNoticeMessage_Call {
-	return &MockRepository_SetNoticeMessage_Call{Call: _e.mock.On("SetNoticeMessage", ctx, memberID, id, messageID)}
+//   - photoMessageID int64
+func (_e *MockRepository_Expecter) SetNoticeMessage(ctx any, memberID any, id any, messageID any, photoMessageID any) *MockRepository_SetNoticeMessage_Call {
+	return &MockRepository_SetNoticeMessage_Call{Call: _e.mock.On("SetNoticeMessage", ctx, memberID, id, messageID, photoMessageID)}
 }
 
-func (_c *MockRepository_SetNoticeMessage_Call) Run(run func(ctx context.Context, memberID string, id string, messageID int64)) *MockRepository_SetNoticeMessage_Call {
+func (_c *MockRepository_SetNoticeMessage_Call) Run(run func(ctx context.Context, memberID string, id string, messageID int64, photoMessageID int64)) *MockRepository_SetNoticeMessage_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1129,11 +1145,16 @@ func (_c *MockRepository_SetNoticeMessage_Call) Run(run func(ctx context.Context
 		if args[3] != nil {
 			arg3 = args[3].(int64)
 		}
+		var arg4 int64
+		if args[4] != nil {
+			arg4 = args[4].(int64)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
 		)
 	})
 	return _c
@@ -1144,7 +1165,7 @@ func (_c *MockRepository_SetNoticeMessage_Call) Return(err error) *MockRepositor
 	return _c
 }
 
-func (_c *MockRepository_SetNoticeMessage_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, messageID int64) error) *MockRepository_SetNoticeMessage_Call {
+func (_c *MockRepository_SetNoticeMessage_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, messageID int64, photoMessageID int64) error) *MockRepository_SetNoticeMessage_Call {
 	_c.Call.Return(run)
 	return _c
 }

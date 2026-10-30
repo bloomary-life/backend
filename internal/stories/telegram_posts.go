@@ -18,10 +18,11 @@ import (
 const (
 	previewPrefix  = "pv:"
 	editSaved      = "Got it — I'll rewrite the post and send you the new preview."
-	editTooLate    = "Too late: this post is no longer scheduled or editable (published, skipped or cancelled)."
+	editTooLate    = "This post can't be changed any more: it was published, skipped or deleted."
 	editLimit      = "Daily edit limit reached. Edit the post in Bloomary instead."
 	editHint       = "Reply to the post preview with a voice note or text: say what to change."
-	plannedNone    = "No scheduled posts."
+	editHowTo      = "Reply to this message with a voice note or text and say what to change."
+	plannedNone    = "No scheduled posts. Drafts are not scheduled yet: open them in Bloomary → Drafts."
 	plannedHeader  = "Scheduled posts (Cyprus time):"
 	plannedRunes   = 60
 	plannedMaxRows = 20
@@ -62,6 +63,10 @@ func (s *EditReplies) Claim(ctx context.Context, link telegramDomain.Link, reply
 	}
 	if err != nil {
 		return telegramDomain.ReplyClaim{}, false, err
+	}
+	// Message IDs are per chat: a preview sent before the current link may share its ID with a message in a new chat.
+	if notice.CreatedAt.Before(link.LinkedAt) {
+		return telegramDomain.ReplyClaim{}, false, nil
 	}
 	claim := telegramDomain.ReplyClaim{ID: notice.ID}
 	if !s.editable(ctx, link.MemberID, notice) {
@@ -188,7 +193,8 @@ func (s *PlannedPosts) HandleCommand(ctx context.Context, link telegramDomain.Li
 		buttons = append(buttons, []telegramDomain.Button{{Text: fmt.Sprintf("Preview %d · %s", len(buttons)+1, when), CallbackData: previewPrefix + job.ID}})
 	}
 	if len(lines) == 0 {
-		_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: plannedNone, Keyboard: botKeyboard})
+		_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: plannedNone,
+			Buttons: [][]telegramDomain.Button{{{Text: "Open Drafts", URL: s.notify.platformURL + "/drafts"}}}})
 		return err
 	}
 	_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: plannedHeader + "\n\n" + strings.Join(lines, "\n"), Buttons: buttons})
@@ -197,11 +203,11 @@ func (s *PlannedPosts) HandleCommand(ctx context.Context, link telegramDomain.Li
 
 func (s *PlannedPosts) Prefix() string { return previewPrefix }
 
-// HandleCallback sends the preview for "pv:<schedule id>"; "pv:e" (Edit by voice) explains how to reply.
+// HandleCallback sends the preview for "pv:<schedule id>"; "pv:e" (How to edit) explains how to reply.
 func (s *PlannedPosts) HandleCallback(ctx context.Context, link telegramDomain.Link, callback telegramDomain.Callback) (string, error) {
 	id := strings.TrimPrefix(callback.Data, previewPrefix)
 	if id == "e" {
-		return editHint, nil
+		return editHowTo, nil
 	}
 	_, err := s.notify.Preview(ctx, link.MemberID, id)
 	switch {

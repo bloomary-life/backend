@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	accountDomain "bloomary-api/internal/domain/account"
@@ -107,6 +108,8 @@ type service struct {
 	scheduledPostStory    scheduledDomain.Story
 	telegramBotStory      telegramDomain.BotStory
 	telegramLinkStory     telegramDomain.LinkStory
+	telegramQueueOnce     sync.Once
+	telegramQueue         *telegramUpdateQueue
 	mcpHandler            http.Handler
 }
 

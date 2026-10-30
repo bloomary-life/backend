@@ -153,8 +153,8 @@ func (a *API) SetMyCommands(ctx context.Context, commands []telegramDomain.Comma
 	return a.callJSON(ctx, "setMyCommands", map[string]any{"commands": list}, nil)
 }
 
-func (a *API) AnswerCallback(ctx context.Context, callbackID, text string) error {
-	return a.callJSON(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": callbackID, "text": text}, nil)
+func (a *API) AnswerCallback(ctx context.Context, callbackID, text string, alert bool) error {
+	return a.callJSON(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": callbackID, "text": text, "show_alert": alert}, nil)
 }
 
 // DownloadFile resolves the file path with getFile and reads at most maxBytes; the bytes stay in memory.

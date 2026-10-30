@@ -533,7 +533,7 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		suggestions, err := stories.NewSuggestionCallbacks(store.reviewRepo)
+		suggestions, err := stories.NewSuggestionCallbacks(store.reviewRepo, userBot)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}

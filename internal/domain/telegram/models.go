@@ -60,6 +60,8 @@ type IncomingMessage struct {
 	ChatID   int64
 	// ReplyToMessageID is the bot message this one replies to (0 when it is not a reply).
 	ReplyToMessageID int64
+	// ReplyToBot is true when the replied message was sent by a bot (this bot: the chat is private).
+	ReplyToBot bool
 }
 
 type Callback struct {
@@ -74,7 +76,12 @@ type Callback struct {
 type Update struct {
 	Message  *IncomingMessage
 	Callback *Callback
+	// ID is Telegram's update_id, used to drop repeated deliveries (0 when unknown).
+	ID int64
 }
+
+// UpdateMemory is how long update IDs are kept to drop repeated deliveries.
+const UpdateMemory = 24 * time.Hour
 
 // Button is an inline keyboard button; exactly one of CallbackData, URL and CopyText is set.
 type Button struct {
@@ -97,6 +104,12 @@ type Photo struct {
 	MimeType string
 	Caption  string
 	ChatID   int64
+}
+
+// Delivery is what a Notifier sent: the message and, when a photo went before it, the photo's message.
+type Delivery struct {
+	MessageID      int64
+	PhotoMessageID int64
 }
 
 // Command is one entry of the bot's command menu (setMyCommands).

@@ -23,12 +23,17 @@ func TestCancelRemovesDraftFromActiveSchedules(t *testing.T) {
 	post, err := repo.Schedule(ctx, domain.CreateInput{MemberID: "member-1", DraftID: "draft-1", ScheduledAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
 
-	require.NoError(t, repo.Cancel(ctx, "member-1", "draft-1"))
+	cancelled, err := repo.Cancel(ctx, "member-1", "draft-1")
+	require.NoError(t, err)
+	require.True(t, cancelled)
+	again, err := repo.Cancel(ctx, "member-1", "draft-1")
+	require.NoError(t, err)
+	require.False(t, again, "a second cancel changes nothing and says so")
 
 	active, err := repo.ListActive(ctx, "member-1")
 	require.NoError(t, err)
 	require.Empty(t, active)
-	cancelled, err := repo.ByID(ctx, "member-1", post.ID)
+	job, err := repo.ByID(ctx, "member-1", post.ID)
 	require.NoError(t, err)
-	require.Equal(t, domain.Cancelled, cancelled.Status)
+	require.Equal(t, domain.Cancelled, job.Status)
 }

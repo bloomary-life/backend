@@ -381,6 +381,78 @@ func (_c *MockLinkRepository_DeleteByMemberID_Call) RunAndReturn(run func(ctx co
 	return _c
 }
 
+// MarkUpdateSeen provides a mock function for the type MockLinkRepository
+func (_mock *MockLinkRepository) MarkUpdateSeen(ctx context.Context, updateID int64, at time.Time) (bool, error) {
+	ret := _mock.Called(ctx, updateID, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkUpdateSeen")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, time.Time) (bool, error)); ok {
+		return returnFunc(ctx, updateID, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, time.Time) bool); ok {
+		r0 = returnFunc(ctx, updateID, at)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, int64, time.Time) error); ok {
+		r1 = returnFunc(ctx, updateID, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockLinkRepository_MarkUpdateSeen_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkUpdateSeen'
+type MockLinkRepository_MarkUpdateSeen_Call struct {
+	*mock.Call
+}
+
+// MarkUpdateSeen is a helper method to define mock.On call
+//   - ctx context.Context
+//   - updateID int64
+//   - at time.Time
+func (_e *MockLinkRepository_Expecter) MarkUpdateSeen(ctx any, updateID any, at any) *MockLinkRepository_MarkUpdateSeen_Call {
+	return &MockLinkRepository_MarkUpdateSeen_Call{Call: _e.mock.On("MarkUpdateSeen", ctx, updateID, at)}
+}
+
+func (_c *MockLinkRepository_MarkUpdateSeen_Call) Run(run func(ctx context.Context, updateID int64, at time.Time)) *MockLinkRepository_MarkUpdateSeen_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 time.Time
+		if args[2] != nil {
+			arg2 = args[2].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockLinkRepository_MarkUpdateSeen_Call) Return(b bool, err error) *MockLinkRepository_MarkUpdateSeen_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockLinkRepository_MarkUpdateSeen_Call) RunAndReturn(run func(ctx context.Context, updateID int64, at time.Time) (bool, error)) *MockLinkRepository_MarkUpdateSeen_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SaveLink provides a mock function for the type MockLinkRepository
 func (_mock *MockLinkRepository) SaveLink(ctx context.Context, link telegram.Link) error {
 	ret := _mock.Called(ctx, link)

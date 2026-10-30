@@ -22,8 +22,12 @@ const (
 	MaxSuggestionRunes   = 3000
 	MaxContextRunes      = 1000
 	MaxNoteRunes         = 1000
-	// DailyEditLimit caps edit requests (replies to post previews) per member per 24 hours.
-	DailyEditLimit = 30
+	// DailyEditLimit caps edit requests (replies to post previews) per member per 24 hours; it stays below
+	// DailyNoticeLimit so the previews that answer edits leave room for new posts' previews.
+	DailyEditLimit = 20
+	// DailyPreviewLimit caps previews the member asks for in the bot (Planned posts → Preview), counted
+	// apart from DailyNoticeLimit so browsing never blocks the AI app's previews.
+	DailyPreviewLimit = 30
 	// MaxEditRunes caps one stored edit request.
 	MaxEditRunes = 4096
 	// CopyTextLimit is the Bot API limit for a CopyTextButton (1-256 characters).
@@ -54,6 +58,10 @@ type Notice struct {
 	Status       NoticeStatus
 	// MessageID is the Telegram message of the preview; a reply to it becomes an edit request.
 	MessageID int64
+	// PhotoMessageID is the image sent just before the preview (0 without image); replies to it count too.
+	PhotoMessageID int64
+	// Requested marks previews the member asked for in the bot; they have their own daily limit.
+	Requested bool
 }
 
 // EditRequest is the member's reply (text or transcribed voice) to a post preview: how to change the draft.

@@ -25,6 +25,8 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 			username TEXT NOT NULL DEFAULT '', linked_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS telegram_link_attempts (
 			nonce TEXT PRIMARY KEY, member_id TEXT NOT NULL, number INTEGER NOT NULL, expires_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS telegram_updates (update_id INTEGER PRIMARY KEY, received_at TEXT NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_telegram_updates_received ON telegram_updates(received_at)`,
 	} {
 		if _, err := db.Exec(query); err != nil {
 			return nil, fmt.Errorf("create telegram tables: %w", err)
@@ -145,4 +147,19 @@ func scanLink(row scanner) (telegramDomain.Link, error) {
 
 	link.LinkedAt, err = time.Parse(time.RFC3339Nano, linkedAt)
 	return link, err
+}
+
+// MarkUpdateSeen inserts the update ID and forgets IDs older than UpdateMemory.
+func (r *SQLiteRepository) MarkUpdateSeen(ctx context.Context, updateID int64, at time.Time) (bool, error) {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM telegram_updates WHERE received_at<?`, at.Add(-telegramDomain.UpdateMemory).UTC().Format(time.RFC3339Nano)); err != nil {
+		return false, fmt.Errorf("prune telegram updates: %w", err)
+	}
+
+	result, err := r.db.ExecContext(ctx, `INSERT OR IGNORE INTO telegram_updates(update_id,received_at) VALUES(?,?)`, updateID, at.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return false, fmt.Errorf("record telegram update: %w", err)
+	}
+
+	n, err := result.RowsAffected()
+	return n == 1, err
 }

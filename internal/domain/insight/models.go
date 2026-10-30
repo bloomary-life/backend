@@ -18,9 +18,11 @@ const (
 )
 
 const (
-	MaxTextRunes      = 4096
-	DailyLimit        = 60
-	DailyVoiceLimit   = 20
+	MaxTextRunes    = 4096
+	DailyLimit      = 60
+	DailyVoiceLimit = 20
+	// DailyVoiceSeconds caps the audio sent to transcription per member per 24 hours (Deepgram bills by the minute).
+	DailyVoiceSeconds = 3600
 	DefaultListLimit  = 100
 	MaxVoiceSeconds   = 600
 	MaxVoiceFileBytes = 20 << 20

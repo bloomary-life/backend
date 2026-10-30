@@ -36,20 +36,20 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	jobs := scheduleMocks.NewMockRepository(t)
 	jobs.EXPECT().ListActive(mock.Anything, "member-1").Return([]scheduledDomain.Post{{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: publishAt}}, nil)
 	reviews := reviewMocks.NewMockRepository(t)
-	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
+	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
 	var created reviewDomain.Notice
 	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Run(func(_ context.Context, n reviewDomain.Notice) { created = n }).Return(nil)
 	objects := draftMocks.NewMockObjectStore(t)
 	objects.EXPECT().Read(mock.Anything, "key-1").Return([]byte("png"), nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.Contains(m.Text, "Scheduled: Tue 3 Nov 2026, 09:00 UTC") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
-			strings.Contains(m.Text, "reply to this message with a voice note or text") &&
+		return strings.Contains(m.Text, "Goes out: Tue 3 Nov, 11:00 (Cyprus)") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
+			strings.Contains(m.Text, "Reply to this message (voice or text) to change it.") &&
 			strings.HasSuffix(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 2 &&
 			m.Buttons[0][0].CallbackData == "pv:e" && m.Buttons[0][1].CallbackData == "sk:"+created.ID &&
 			m.Buttons[1][0].URL == "https://platform.bloomary.life/editor?draft=draft-1"
-	}), &telegramDomain.Photo{Data: []byte("png"), MimeType: "image/png", Caption: "Image for the post below"}).Return(10, nil)
-	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(10)).Return(nil)
+	}), &telegramDomain.Photo{Data: []byte("png"), MimeType: "image/png", Caption: "Image for the post below"}).Return(telegramDomain.Delivery{MessageID: 10, PhotoMessageID: 9}, nil)
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(10), int64(9)).Return(nil)
 	story, err := NewNotifyScheduled(proAccess(t), drafts, jobs, reviews, objects, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
@@ -60,6 +60,78 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	require.Equal(t, "Proof beats adjectives.", notice.ProposedText)
 	require.Equal(t, reviewDomain.NoticeSent, created.Status)
 	require.Equal(t, int64(10), notice.MessageID)
+	require.Equal(t, int64(9), notice.PhotoMessageID, "a reply to the image must reach the same notice")
+}
+
+func TestNotifyDraftSendsPreviewWithDiscardAndNoTime(t *testing.T) {
+	// Verifies: BE-019
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Proof beats adjectives.", Status: "draft"}, nil)
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
+	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Return(nil)
+	notifier := telegramMocks.NewMockNotifier(t)
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return strings.HasPrefix(m.Text, draftHeader+"\n\n") && !strings.Contains(m.Text, "Goes out") &&
+			m.Buttons[0][0].Text == "✏️ How to edit" && m.Buttons[0][1].Text == "Discard" && strings.HasPrefix(m.Buttons[0][1].CallbackData, "sk:")
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 20}, nil)
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(20), int64(0)).Return(nil)
+	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
+	require.NoError(t, err)
+
+	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "")
+
+	require.NoError(t, err)
+}
+
+func TestDiscardMarksDraftPreviewSkipped(t *testing.T) {
+	// Verifies: BE-019
+	notice := reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ProposedText: "Post", Status: reviewDomain.NoticeSent}
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().NoticeByID(mock.Anything, "member-1", "n-1").Return(notice, nil)
+	reviews.EXPECT().SkipNotice(mock.Anything, "member-1", "n-1", mock.Anything).Return(notice, nil)
+	bot := telegramMocks.NewMockGate(t)
+	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(8), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Discarded:") })).Return(nil)
+	callbacks, err := NewSkipCallbacks(reviews, scheduleMocks.NewMockRepository(t), bot)
+	require.NoError(t, err)
+
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1", ChatID: 100}, telegramDomain.Callback{Data: "sk:n-1", ChatID: 100, MessageID: 8})
+
+	require.NoError(t, err)
+	require.Equal(t, "Discarded: the draft stays in Bloomary.", answer)
+}
+
+func TestSkipIsTooLateWhenTheWorkerClaimedThePost(t *testing.T) {
+	// Verifies: BE-013
+	notice := reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", Status: reviewDomain.NoticeSent}
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().NoticeByID(mock.Anything, "member-1", "n-1").Return(notice, nil)
+	jobs := scheduleMocks.NewMockRepository(t)
+	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", Status: scheduledDomain.Pending}, nil)
+	jobs.EXPECT().Cancel(mock.Anything, "member-1", "draft-1").Return(false, nil)
+	callbacks, err := NewSkipCallbacks(reviews, jobs, telegramMocks.NewMockGate(t))
+	require.NoError(t, err)
+
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1"}, telegramDomain.Callback{Data: "sk:n-1"})
+
+	require.NoError(t, err)
+	require.Equal(t, skipTooLate, answer)
+}
+
+func TestSkipOnNeedsReviewSaysThePostMayBeLive(t *testing.T) {
+	// Verifies: BE-013
+	notice := reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", Status: reviewDomain.NoticeSent}
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().NoticeByID(mock.Anything, "member-1", "n-1").Return(notice, nil)
+	jobs := scheduleMocks.NewMockRepository(t)
+	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", Status: scheduledDomain.NeedsReview}, nil)
+	callbacks, err := NewSkipCallbacks(reviews, jobs, telegramMocks.NewMockGate(t))
+	require.NoError(t, err)
+
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1"}, telegramDomain.Callback{Data: "sk:n-1"})
+
+	require.NoError(t, err)
+	require.Equal(t, skipNeedsReview, answer)
 }
 
 func TestSkipCancelsScheduledPost(t *testing.T) {
@@ -70,7 +142,7 @@ func TestSkipCancelsScheduledPost(t *testing.T) {
 	reviews.EXPECT().SkipNotice(mock.Anything, "member-1", "n-1", mock.Anything).Return(notice, nil)
 	jobs := scheduleMocks.NewMockRepository(t)
 	jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", Status: scheduledDomain.Pending}, nil)
-	jobs.EXPECT().Cancel(mock.Anything, "member-1", "draft-1").Return(nil)
+	jobs.EXPECT().Cancel(mock.Anything, "member-1", "draft-1").Return(true, nil)
 	bot := telegramMocks.NewMockGate(t)
 	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(8), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Skipped:") })).Return(nil)
 	callbacks, err := NewSkipCallbacks(reviews, jobs, bot)
@@ -89,11 +161,11 @@ func TestSendSuggestionSendsCopyRatingAndPostedButtons(t *testing.T) {
 	reviews.EXPECT().CreateSuggestion(mock.Anything, mock.Anything).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return m.Text == "Comment idea\nThey asked about EU visas\n\nThe Blue Card salary threshold changed this year." &&
+		return m.Text == "Comment idea\nThey asked about EU visas\n\nThe Blue Card salary threshold changed this year."+suggestionRateLine &&
 			m.Buttons[0][0] == telegramDomain.Button{Text: "Open post", URL: "https://www.linkedin.com/feed/update/urn:li:activity:1"} &&
 			m.Buttons[0][1] == telegramDomain.Button{Text: "Copy comment", CopyText: "The Blue Card salary threshold changed this year."} &&
 			len(m.Buttons[1]) == 5 && strings.HasSuffix(m.Buttons[1][4].CallbackData, ":5") && strings.HasSuffix(m.Buttons[2][0].CallbackData, ":p")
-	}), (*telegramDomain.Photo)(nil)).Return(11, nil)
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 11}, nil)
 	story, err := NewSendSuggestion(proAccess(t), reviews, notifier)
 	require.NoError(t, err)
 
@@ -108,13 +180,28 @@ func TestSuggestionRatingIsStored(t *testing.T) {
 	// Verifies: BE-012
 	reviews := reviewMocks.NewMockRepository(t)
 	reviews.EXPECT().RateSuggestion(mock.Anything, "member-1", "s-1", 4, mock.Anything).Return(nil)
-	callbacks, err := NewSuggestionCallbacks(reviews)
+	callbacks, err := NewSuggestionCallbacks(reviews, telegramMocks.NewMockGate(t))
 	require.NoError(t, err)
 
 	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1"}, telegramDomain.Callback{Data: "sg:s-1:4"})
 
 	require.NoError(t, err)
 	require.Equal(t, "Rated 4 of 5.", answer)
+}
+
+func TestSuggestionPostedMarksTheMessage(t *testing.T) {
+	// Verifies: BE-012
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().MarkSuggestionPosted(mock.Anything, "member-1", "s-1", mock.Anything).Return(reviewDomain.Suggestion{ID: "s-1", Text: "Good point", Context: "Visas"}, nil)
+	bot := telegramMocks.NewMockGate(t)
+	bot.EXPECT().EditMessageText(mock.Anything, int64(100), int64(9), "✅ Posted\n\nComment idea\nVisas\n\nGood point").Return(nil)
+	callbacks, err := NewSuggestionCallbacks(reviews, bot)
+	require.NoError(t, err)
+
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1"}, telegramDomain.Callback{Data: "sg:s-1:p", ChatID: 100, MessageID: 9})
+
+	require.NoError(t, err)
+	require.Equal(t, "Marked as posted.", answer)
 }
 
 func TestListFeedbackReportsOutcomesAndMemberEdits(t *testing.T) {
@@ -144,4 +231,11 @@ func TestListFeedbackReportsOutcomesAndMemberEdits(t *testing.T) {
 	require.Equal(t, "skipped", feedback.Posts[1].PostStatus)
 	require.False(t, feedback.Posts[1].Edited)
 	require.Equal(t, 5, feedback.Suggestions[0].Rating)
+}
+
+func TestNeedsReviewIsNotStillScheduled(t *testing.T) {
+	// Verifies: BE-018
+	require.True(t, stillScheduled(scheduledDomain.Pending))
+	require.True(t, stillScheduled(scheduledDomain.Retry))
+	require.False(t, stillScheduled(scheduledDomain.NeedsReview), "a needs_review post may already be on LinkedIn")
 }

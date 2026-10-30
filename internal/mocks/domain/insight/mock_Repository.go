@@ -391,3 +391,87 @@ func (_c *MockRepository_MarkUsed_Call) RunAndReturn(run func(ctx context.Contex
 	_c.Call.Return(run)
 	return _c
 }
+
+// ReserveVoice provides a mock function for the type MockRepository
+func (_mock *MockRepository) ReserveVoice(ctx context.Context, memberID string, seconds int, since time.Time, at time.Time) (bool, error) {
+	ret := _mock.Called(ctx, memberID, seconds, since, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReserveVoice")
+	}
+
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, time.Time, time.Time) (bool, error)); ok {
+		return returnFunc(ctx, memberID, seconds, since, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, time.Time, time.Time) bool); ok {
+		r0 = returnFunc(ctx, memberID, seconds, since, at)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, int, time.Time, time.Time) error); ok {
+		r1 = returnFunc(ctx, memberID, seconds, since, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRepository_ReserveVoice_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReserveVoice'
+type MockRepository_ReserveVoice_Call struct {
+	*mock.Call
+}
+
+// ReserveVoice is a helper method to define mock.On call
+//   - ctx context.Context
+//   - memberID string
+//   - seconds int
+//   - since time.Time
+//   - at time.Time
+func (_e *MockRepository_Expecter) ReserveVoice(ctx any, memberID any, seconds any, since any, at any) *MockRepository_ReserveVoice_Call {
+	return &MockRepository_ReserveVoice_Call{Call: _e.mock.On("ReserveVoice", ctx, memberID, seconds, since, at)}
+}
+
+func (_c *MockRepository_ReserveVoice_Call) Run(run func(ctx context.Context, memberID string, seconds int, since time.Time, at time.Time)) *MockRepository_ReserveVoice_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 int
+		if args[2] != nil {
+			arg2 = args[2].(int)
+		}
+		var arg3 time.Time
+		if args[3] != nil {
+			arg3 = args[3].(time.Time)
+		}
+		var arg4 time.Time
+		if args[4] != nil {
+			arg4 = args[4].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+			arg4,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_ReserveVoice_Call) Return(b bool, err error) *MockRepository_ReserveVoice_Call {
+	_c.Call.Return(b, err)
+	return _c
+}
+
+func (_c *MockRepository_ReserveVoice_Call) RunAndReturn(run func(ctx context.Context, memberID string, seconds int, since time.Time, at time.Time) (bool, error)) *MockRepository_ReserveVoice_Call {
+	_c.Call.Return(run)
+	return _c
+}

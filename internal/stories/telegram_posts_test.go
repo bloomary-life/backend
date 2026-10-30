@@ -64,16 +64,53 @@ func TestPreviewButtonSendsPreviewThatAcceptsReplies(t *testing.T) {
 	f := newPostsFixture(t)
 	f.jobs.EXPECT().ByID(mock.Anything, "member-1", "job-1").Return(scheduledDomain.Post{ID: "job-1", DraftID: "draft-1", Status: scheduledDomain.Pending, ScheduledAt: time.Now().Add(time.Hour)}, nil)
 	f.drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Post", Status: "draft"}, nil)
-	f.reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
-	f.reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.ScheduleID == "job-1" })).Return(nil)
+	f.reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, true).Return(0, nil)
+	f.reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.ScheduleID == "job-1" && n.Requested })).Return(nil)
 	f.notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return m.Buttons[0][0].Text == "Edit by voice" && m.Buttons[0][1].Text == "Skip"
-	}), (*telegramDomain.Photo)(nil)).Return(12, nil)
-	f.reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(12)).Return(nil)
-	f.gate.EXPECT().AnswerCallback(mock.Anything, "cb-2", "").Return(nil)
+		return m.Buttons[0][0].Text == "✏️ How to edit" && m.Buttons[0][1].Text == "Skip"
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 12}, nil)
+	f.reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(12), int64(0)).Return(nil)
+	f.gate.EXPECT().AnswerCallback(mock.Anything, "cb-2", "", false).Return(nil)
 
 	require.NoError(t, f.story.HandleUpdate(context.Background(), telegramDomain.Update{Callback: &telegramDomain.Callback{
 		ID: "cb-2", Data: "pv:job-1", ChatID: 100, MessageID: 11, From: telegramDomain.Sender{ID: 100}}}))
+}
+
+func TestPlannedPostsWithNothingScheduledPointsToDrafts(t *testing.T) {
+	// Verifies: BE-018
+	f := newPostsFixture(t)
+	f.jobs.EXPECT().ListActive(mock.Anything, "member-1").Return(nil, nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: plannedNone,
+		Buttons: [][]telegramDomain.Button{{{Text: "Open Drafts", URL: "https://platform.bloomary.life/drafts"}}}}).Return(11, nil)
+
+	require.NoError(t, f.story.HandleUpdate(context.Background(), privateMessage(keyPlanned)))
+}
+
+func TestHowToEditButtonAnswersWithAnAlert(t *testing.T) {
+	// Verifies: BE-018
+	f := newPostsFixture(t)
+	f.gate.EXPECT().AnswerCallback(mock.Anything, "cb-3", editHowTo, true).Return(nil)
+
+	require.NoError(t, f.story.HandleUpdate(context.Background(), telegramDomain.Update{Callback: &telegramDomain.Callback{
+		ID: "cb-3", Data: "pv:e", ChatID: 100, MessageID: 11, From: telegramDomain.Sender{ID: 100}}}))
+}
+
+func TestReplyToPreviewFromBeforeTheLinkIsNotAnEdit(t *testing.T) {
+	// Verifies: BE-017
+	f := postsFixture{botFixture: newBotFixture(t), reviews: reviewMocks.NewMockRepository(t), jobs: scheduleMocks.NewMockRepository(t), drafts: draftMocks.NewMockRepository(t)}
+	replies, err := NewEditReplies(f.reviews, f.jobs, f.drafts)
+	require.NoError(t, err)
+	f.story, err = NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life", TelegramBotHandlers{Replies: replies})
+	require.NoError(t, err)
+	linkedAt := time.Now().UTC()
+	f.links.EXPECT().ByTelegramUser(mock.Anything, int64(100)).Return(telegramDomain.Link{MemberID: "member-1", ChatID: 100, TelegramUserID: 100, LinkedAt: linkedAt}, nil)
+	f.reviews.EXPECT().NoticeByMessage(mock.Anything, "member-1", int64(57)).
+		Return(reviewDomain.Notice{ID: "old", DraftID: "draft-1", Status: reviewDomain.NoticeSent, CreatedAt: linkedAt.Add(-time.Hour)}, nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botReplyHint, Keyboard: botKeyboard}).Return(58, nil)
+	update := privateMessage("Make it warmer")
+	update.Message.ReplyToMessageID, update.Message.ReplyToBot = 57, true
+
+	require.NoError(t, f.story.HandleUpdate(context.Background(), update))
 }
 
 func TestTextReplyToDraftPreviewIsStoredAsEditRequest(t *testing.T) {

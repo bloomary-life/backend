@@ -21,9 +21,9 @@ import (
 	"bloomary-api/internal/platform/logger"
 )
 
-const noticeHeader = "Scheduled LinkedIn post. It goes out at this time unless you tap Skip. To change it, reply to this message with a voice note or text."
+const noticeHeader = "LinkedIn post, scheduled. It goes out at the time below unless you tap Skip. Reply to this message (voice or text) to change it."
 
-const draftHeader = "Post draft for LinkedIn. To change it, reply to this message with a voice note or text."
+const draftHeader = "LinkedIn post draft, not scheduled. Reply to this message (voice or text) to change it. To post it, open it in Bloomary."
 
 // Telegram counts message length in UTF-16 code units; a message holds at most 4096.
 const telegramMessageLimit = 4096
@@ -64,7 +64,7 @@ func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note st
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
-	return s.send(ctx, memberID, draft, job, note)
+	return s.send(ctx, memberID, draft, job, note, false)
 }
 
 // NotifyDraft sends the preview of an unscheduled, unpublished draft (draft-only mode): no time and no Skip.
@@ -82,7 +82,7 @@ func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, no
 	if draft.Status != "draft" {
 		return reviewDomain.Notice{}, ErrMCPDraftNotEditable
 	}
-	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note)
+	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note, false)
 }
 
 // Preview sends the preview of one of the member's scheduled posts on request in the bot (/planned → Preview).
@@ -95,17 +95,22 @@ func (s *NotifyScheduled) Preview(ctx context.Context, memberID, scheduleID stri
 	if err != nil {
 		return reviewDomain.Notice{}, ErrMCPDraftNotFound
 	}
-	return s.send(ctx, memberID, draft, job, "")
+	return s.send(ctx, memberID, draft, job, "", true)
 }
 
-// send stores a notice and sends the preview; a reply to the preview message becomes an edit request.
-func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note string) (reviewDomain.Notice, error) {
+// send stores a notice and sends the preview; a reply to the preview message (or its image) becomes an edit request.
+// requested previews (the member's Preview taps) count against their own daily limit, not the AI app's.
+func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note string, requested bool) (reviewDomain.Notice, error) {
 	now := time.Now().UTC()
-	count, err := s.reviews.CountNoticesSince(ctx, memberID, now.Add(-24*time.Hour))
+	count, err := s.reviews.CountNoticesSince(ctx, memberID, now.Add(-24*time.Hour), requested)
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
-	if count >= reviewDomain.DailyNoticeLimit {
+	limit := reviewDomain.DailyNoticeLimit
+	if requested {
+		limit = reviewDomain.DailyPreviewLimit
+	}
+	if count >= limit {
 		return reviewDomain.Notice{}, reviewDomain.ErrDailyLimit
 	}
 	id, err := randomHex(16)
@@ -113,7 +118,7 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 		return reviewDomain.Notice{}, err
 	}
 	notice := reviewDomain.Notice{ID: id, MemberID: memberID, DraftID: draft.DraftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
-		ProposedText: draft.Body, Note: strings.TrimSpace(note), Status: reviewDomain.NoticeSent, CreatedAt: now}
+		ProposedText: draft.Body, Note: strings.TrimSpace(note), Status: reviewDomain.NoticeSent, CreatedAt: now, Requested: requested}
 	if err := s.reviews.CreateNotice(ctx, notice); err != nil {
 		return reviewDomain.Notice{}, err
 	}
@@ -125,22 +130,22 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 		}
 		photo = &telegramDomain.Photo{Data: data, MimeType: draft.Image.MimeType, Caption: "Image for the post below"}
 	}
-	header, first := noticeHeader, []telegramDomain.Button{{Text: "Edit by voice", CallbackData: previewPrefix + "e"}, {Text: "Skip", CallbackData: "sk:" + id}}
+	header, first := noticeHeader, []telegramDomain.Button{{Text: "✏️ How to edit", CallbackData: previewPrefix + "e"}, {Text: "Skip", CallbackData: "sk:" + id}}
 	if job.ID == "" {
-		header, first = draftHeader, first[:1]
+		header, first[1].Text = draftHeader, "Discard"
 	}
 	message := telegramDomain.OutgoingMessage{Text: noticeText(header, notice), Buttons: [][]telegramDomain.Button{
 		first, {{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draft.DraftID)}},
 	}}
-	messageID, err := s.notifier.Notify(ctx, memberID, message, photo)
+	sent, err := s.notifier.Notify(ctx, memberID, message, photo)
 	if err != nil {
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
 			return reviewDomain.Notice{}, reviewDomain.ErrNotLinked
 		}
 		return reviewDomain.Notice{}, fmt.Errorf("send Telegram notice: %w", err)
 	}
-	notice.MessageID = messageID
-	if err := s.reviews.SetNoticeMessage(ctx, memberID, id, messageID); err != nil {
+	notice.MessageID, notice.PhotoMessageID = sent.MessageID, sent.PhotoMessageID
+	if err := s.reviews.SetNoticeMessage(ctx, memberID, id, sent.MessageID, sent.PhotoMessageID); err != nil {
 		return reviewDomain.Notice{}, err
 	}
 	return notice, nil
@@ -159,12 +164,20 @@ func (s *NotifyScheduled) activeSchedule(ctx context.Context, memberID, draftID 
 	return scheduledDomain.Post{}, reviewDomain.ErrNotScheduled
 }
 
-// stillScheduled is true while the post has not started going out and was not cancelled.
+// stillScheduled is true while the post has not started going out and was not cancelled. needs_review is
+// not: the post may already be on LinkedIn (published but not recorded, or interrupted mid-publish).
 func stillScheduled(status scheduledDomain.Status) bool {
-	return status == scheduledDomain.Pending || status == scheduledDomain.Retry || status == scheduledDomain.NeedsReview
+	return status == scheduledDomain.Pending || status == scheduledDomain.Retry
 }
 
+const (
+	skipTooLate     = "Too late: the post is already going out on LinkedIn."
+	skipNeedsReview = "This post may already be on LinkedIn — check it in Bloomary."
+	skipGone        = "This post is no longer scheduled."
+)
+
 // SkipCallbacks handles Skip ("sk:<notice id>"): it cancels the post's schedule unless it already went out.
+// On a draft preview the same button is Discard: the preview is marked skipped and the draft stays.
 type SkipCallbacks struct {
 	reviews reviewDomain.Repository
 	jobs    scheduledDomain.Repository
@@ -185,29 +198,39 @@ func (s *SkipCallbacks) Prefix() string { return "sk:" }
 func (s *SkipCallbacks) HandleCallback(ctx context.Context, link telegramDomain.Link, callback telegramDomain.Callback) (string, error) {
 	notice, err := s.reviews.NoticeByID(ctx, link.MemberID, strings.TrimPrefix(callback.Data, "sk:"))
 	if err != nil {
-		return "This post is no longer scheduled.", nil
+		return skipGone, nil
 	}
 	if notice.Status == reviewDomain.NoticeSkipped {
-		return "Already skipped.", nil
+		return "Already done.", nil
 	}
-	job, err := s.jobs.ByID(ctx, link.MemberID, notice.ScheduleID)
-	if err != nil {
-		return "This post is no longer scheduled.", nil
-	}
-	switch job.Status {
-	case scheduledDomain.Pending, scheduledDomain.Retry, scheduledDomain.NeedsReview:
-	case scheduledDomain.Published, scheduledDomain.Processing:
-		return "Too late: the post is already going out on LinkedIn.", nil
-	default:
-		return "This post is no longer scheduled.", nil
-	}
-	if err := s.jobs.Cancel(ctx, link.MemberID, notice.DraftID); err != nil {
-		return "", err
+	result := "Discarded: the draft stays in Bloomary."
+	if notice.ScheduleID != "" {
+		job, err := s.jobs.ByID(ctx, link.MemberID, notice.ScheduleID)
+		if err != nil {
+			return skipGone, nil
+		}
+		switch job.Status {
+		case scheduledDomain.Pending, scheduledDomain.Retry:
+		case scheduledDomain.NeedsReview:
+			return skipNeedsReview, nil
+		case scheduledDomain.Published, scheduledDomain.Processing:
+			return skipTooLate, nil
+		default:
+			return skipGone, nil
+		}
+		cancelled, err := s.jobs.Cancel(ctx, link.MemberID, notice.DraftID)
+		if err != nil {
+			return "", err
+		}
+		if !cancelled {
+			// The worker claimed the post between the status check and the cancel.
+			return skipTooLate, nil
+		}
+		result = "Skipped: the schedule is cancelled, the draft stays in Bloomary."
 	}
 	if _, err := s.reviews.SkipNotice(ctx, link.MemberID, notice.ID, time.Now().UTC()); err != nil {
 		return "", err
 	}
-	result := "Skipped: the schedule is cancelled, the draft stays in Bloomary."
 	if err := s.bot.EditMessageText(ctx, callback.ChatID, callback.MessageID, noticeText(result, notice)); err != nil {
 		logger.FromContext(ctx).WithError(err).Info("telegram_edit_notice_failed")
 	}
@@ -267,11 +290,11 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	for rating := 1; rating <= 5; rating++ {
 		ratings = append(ratings, telegramDomain.Button{Text: strconv.Itoa(rating), CallbackData: "sg:" + id + ":" + strconv.Itoa(rating)})
 	}
-	body := "Comment idea"
-	if postContext != "" {
-		body += "\n" + postContext
+	body := suggestionText(suggestion)
+	if utf16Len(body+suggestionRateLine) <= telegramMessageLimit {
+		body += suggestionRateLine
 	}
-	message := telegramDomain.OutgoingMessage{Text: fitTelegram(body+"\n\n", text, ""), Buttons: [][]telegramDomain.Button{
+	message := telegramDomain.OutgoingMessage{Text: body, Buttons: [][]telegramDomain.Button{
 		first, ratings, {{Text: "Posted", CallbackData: "sg:" + id + ":p"}},
 	}}
 	if _, err := s.notifier.Notify(ctx, in.MemberID, message, nil); err != nil {
@@ -283,18 +306,30 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 	return suggestion, nil
 }
 
-// SuggestionCallbacks stores a rating ("sg:<id>:1".."5") or the posted flag ("sg:<id>:p").
+const suggestionRateLine = "\n\nRate the draft 1 (bad) to 5 (posted as is):"
+
+// suggestionText is the comment idea message without the rating line.
+func suggestionText(s reviewDomain.Suggestion) string {
+	head := "Comment idea"
+	if s.Context != "" {
+		head += "\n" + s.Context
+	}
+	return fitTelegram(head+"\n\n", s.Text, "")
+}
+
+// SuggestionCallbacks stores a rating ("sg:<id>:1".."5") or the posted flag ("sg:<id>:p"); Posted marks the message.
 type SuggestionCallbacks struct {
 	reviews reviewDomain.Repository
+	bot     telegramDomain.Gate
 }
 
 var _ telegramDomain.CallbackHandler = (*SuggestionCallbacks)(nil)
 
-func NewSuggestionCallbacks(reviews reviewDomain.Repository) (*SuggestionCallbacks, error) {
-	if reviews == nil {
-		return nil, fmt.Errorf("suggestion callbacks: review repository is required")
+func NewSuggestionCallbacks(reviews reviewDomain.Repository, bot telegramDomain.Gate) (*SuggestionCallbacks, error) {
+	if reviews == nil || bot == nil {
+		return nil, fmt.Errorf("suggestion callbacks: review repository and bot gate are required")
 	}
-	return &SuggestionCallbacks{reviews: reviews}, nil
+	return &SuggestionCallbacks{reviews: reviews, bot: bot}, nil
 }
 
 func (s *SuggestionCallbacks) Prefix() string { return "sg:" }
@@ -306,8 +341,12 @@ func (s *SuggestionCallbacks) HandleCallback(ctx context.Context, link telegramD
 	}
 	now := time.Now().UTC()
 	if parts[2] == "p" {
-		if err := s.reviews.MarkSuggestionPosted(ctx, link.MemberID, parts[1], now); err != nil {
+		suggestion, err := s.reviews.MarkSuggestionPosted(ctx, link.MemberID, parts[1], now)
+		if err != nil {
 			return "This suggestion is no longer active.", nil
+		}
+		if err := s.bot.EditMessageText(ctx, callback.ChatID, callback.MessageID, fitTelegram("✅ Posted\n\n", suggestionText(suggestion), "")); err != nil {
+			logger.FromContext(ctx).WithError(err).Info("telegram_edit_suggestion_failed")
 		}
 		return "Marked as posted.", nil
 	}
@@ -387,9 +426,9 @@ func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notic
 }
 
 func noticeText(header string, notice reviewDomain.Notice) string {
-	head := header + "\nScheduled: " + formatPostTime(notice.ScheduledAt)
-	if notice.ScheduleID == "" {
-		head = header + "\nDraft — not scheduled"
+	head := header
+	if notice.ScheduleID != "" {
+		head += "\nGoes out: " + formatPostTime(notice.ScheduledAt)
 	}
 	if notice.Note != "" {
 		head += "\nNote: " + notice.Note
@@ -423,8 +462,9 @@ func utf16Len(s string) int {
 	return len(utf16.Encode([]rune(s)))
 }
 
+// formatPostTime shows a post time as /planned does: in the member's post time zone (Cyprus).
 func formatPostTime(t time.Time) string {
-	return t.UTC().Format("Mon 2 Jan 2006, 15:04") + " UTC"
+	return t.In(postTimeZone).Format("Mon 2 Jan, 15:04") + " (Cyprus)"
 }
 
 func randomHex(size int) (string, error) {

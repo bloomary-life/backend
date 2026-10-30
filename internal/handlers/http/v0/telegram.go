@@ -5,8 +5,10 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	telegramDomain "bloomary-api/internal/domain/telegram"
@@ -36,7 +38,8 @@ type telegramUpdate struct {
 			FileSize int64  `json:"file_size"`
 		} `json:"voice"`
 		ReplyToMessage *struct {
-			MessageID int64 `json:"message_id"`
+			From      *telegramUser `json:"from"`
+			MessageID int64         `json:"message_id"`
 		} `json:"reply_to_message"`
 		Text string       `json:"text"`
 		Chat telegramChat `json:"chat"`
@@ -50,6 +53,7 @@ type telegramUpdate struct {
 		Data string       `json:"data"`
 		From telegramUser `json:"from"`
 	} `json:"callback_query"`
+	UpdateID int64 `json:"update_id"`
 }
 
 type telegramLinkResponse struct {
@@ -62,7 +66,7 @@ type telegramLinkResponse struct {
 }
 
 // TelegramWebhook accepts Bot API updates. Only requests carrying the webhook secret set with
-// setWebhook are accepted; the update is handled after the response so Telegram never retries it.
+// setWebhook are accepted; the update is queued and handled after the response, in order per chat.
 func (s *service) TelegramWebhook(w http.ResponseWriter, r *http.Request) {
 	if s.telegramBotStory == nil {
 		writeAPIError(w, http.StatusNotFound, "telegram_disabled", "Telegram bot is not configured")
@@ -87,14 +91,99 @@ func (s *service) TelegramWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), telegramUpdateTimeout)
-	go func() {
-		defer cancel()
-		if err := s.telegramBotStory.HandleUpdate(ctx, update); err != nil {
-			logger.FromContext(ctx).WithError(err).Error("telegram_update_failed")
+	s.telegramQueueOnce.Do(func() {
+		s.telegramQueue = newTelegramUpdateQueue(s.telegramBotStory, telegramWorkers, telegramMaxQueued)
+	})
+	if !s.telegramQueue.enqueue(context.WithoutCancel(r.Context()), update) {
+		logger.FromContext(r.Context()).Error("telegram_update_dropped_queue_full")
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+const (
+	// telegramWorkers bounds updates handled at once (each voice note holds up to 20 MB in memory).
+	telegramWorkers = 4
+	// telegramMaxQueued bounds updates waiting in memory; more are dropped and logged.
+	telegramMaxQueued = 500
+)
+
+// telegramUpdateQueue handles updates one at a time per chat, in arrival order, with at most `workers`
+// chats in flight. A panic in one update is logged and does not stop the API.
+type telegramUpdateQueue struct {
+	bot     telegramDomain.BotStory
+	slots   chan struct{}
+	mu      sync.Mutex
+	pending map[int64][]queuedUpdate
+	queued  int
+	max     int
+}
+
+type queuedUpdate struct {
+	ctx    context.Context
+	update telegramDomain.Update
+}
+
+func newTelegramUpdateQueue(bot telegramDomain.BotStory, workers, maxQueued int) *telegramUpdateQueue {
+	return &telegramUpdateQueue{bot: bot, slots: make(chan struct{}, workers), pending: map[int64][]queuedUpdate{}, max: maxQueued}
+}
+
+// enqueue adds the update to its chat's queue and starts a drainer for the chat when none runs; false when full.
+func (q *telegramUpdateQueue) enqueue(ctx context.Context, update telegramDomain.Update) bool {
+	chat := updateChatID(update)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.queued >= q.max {
+		return false
+	}
+	q.queued++
+	_, running := q.pending[chat]
+	q.pending[chat] = append(q.pending[chat], queuedUpdate{ctx: ctx, update: update})
+	if !running {
+		go q.drain(chat)
+	}
+	return true
+}
+
+func (q *telegramUpdateQueue) drain(chat int64) {
+	for {
+		q.mu.Lock()
+		items := q.pending[chat]
+		if len(items) == 0 {
+			delete(q.pending, chat)
+			q.mu.Unlock()
+			return
+		}
+		next := items[0]
+		q.pending[chat] = items[1:]
+		q.queued--
+		q.mu.Unlock()
+		q.slots <- struct{}{}
+		q.handle(next)
+		<-q.slots
+	}
+}
+
+func (q *telegramUpdateQueue) handle(item queuedUpdate) {
+	ctx, cancel := context.WithTimeout(item.ctx, telegramUpdateTimeout)
+	defer cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.FromContext(ctx).Error(fmt.Sprintf("telegram_update_panic: %v", recovered))
 		}
 	}()
-	w.WriteHeader(http.StatusOK)
+	if err := q.bot.HandleUpdate(ctx, item.update); err != nil {
+		logger.FromContext(ctx).WithError(err).Error("telegram_update_failed")
+	}
+}
+
+func updateChatID(update telegramDomain.Update) int64 {
+	if update.Message != nil {
+		return update.Message.ChatID
+	}
+	if update.Callback != nil {
+		return update.Callback.ChatID
+	}
+	return 0
 }
 
 // TelegramLink starts (POST), reads (GET) or removes (DELETE) the signed-in member's Telegram link.
@@ -149,7 +238,7 @@ func writeJSON(w http.ResponseWriter, value any) {
 }
 
 func toTelegramUpdate(raw telegramUpdate) telegramDomain.Update {
-	var update telegramDomain.Update
+	update := telegramDomain.Update{ID: raw.UpdateID}
 	if m := raw.Message; m != nil && m.From != nil {
 		message := &telegramDomain.IncomingMessage{ChatID: m.Chat.ID, ChatType: m.Chat.Type, Text: m.Text,
 			From: telegramDomain.Sender{ID: m.From.ID, Username: m.From.Username, IsBot: m.From.IsBot}}
@@ -158,6 +247,7 @@ func toTelegramUpdate(raw telegramUpdate) telegramDomain.Update {
 		}
 		if m.ReplyToMessage != nil {
 			message.ReplyToMessageID = m.ReplyToMessage.MessageID
+			message.ReplyToBot = m.ReplyToMessage.From != nil && m.ReplyToMessage.From.IsBot
 		}
 		update.Message = message
 	}

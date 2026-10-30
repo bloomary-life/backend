@@ -121,20 +121,29 @@ func (_c *MockRepository_ByID_Call) RunAndReturn(run func(context1 context.Conte
 }
 
 // Cancel provides a mock function for the type MockRepository
-func (_mock *MockRepository) Cancel(context1 context.Context, s string, s1 string) error {
+func (_mock *MockRepository) Cancel(context1 context.Context, s string, s1 string) (bool, error) {
 	ret := _mock.Called(context1, s, s1)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Cancel")
 	}
 
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+	var r0 bool
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (bool, error)); ok {
+		return returnFunc(context1, s, s1)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) bool); ok {
 		r0 = returnFunc(context1, s, s1)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bool)
 	}
-	return r0
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(context1, s, s1)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 // MockRepository_Cancel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Cancel'
@@ -173,12 +182,12 @@ func (_c *MockRepository_Cancel_Call) Run(run func(context1 context.Context, s s
 	return _c
 }
 
-func (_c *MockRepository_Cancel_Call) Return(err error) *MockRepository_Cancel_Call {
-	_c.Call.Return(err)
+func (_c *MockRepository_Cancel_Call) Return(b bool, err error) *MockRepository_Cancel_Call {
+	_c.Call.Return(b, err)
 	return _c
 }
 
-func (_c *MockRepository_Cancel_Call) RunAndReturn(run func(context1 context.Context, s string, s1 string) error) *MockRepository_Cancel_Call {
+func (_c *MockRepository_Cancel_Call) RunAndReturn(run func(context1 context.Context, s string, s1 string) (bool, error)) *MockRepository_Cancel_Call {
 	_c.Call.Return(run)
 	return _c
 }

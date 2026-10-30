@@ -10,7 +10,8 @@ type Gate interface {
 	SendMessage(ctx context.Context, message OutgoingMessage) (int64, error)
 	SendPhoto(ctx context.Context, photo Photo) (int64, error)
 	EditMessageText(ctx context.Context, chatID, messageID int64, text string) error
-	AnswerCallback(ctx context.Context, callbackID, text string) error
+	// AnswerCallback shows text as a short toast, or as a dialog the member closes when alert is true.
+	AnswerCallback(ctx context.Context, callbackID, text string, alert bool) error
 	DownloadFile(ctx context.Context, fileID string, maxBytes int64) ([]byte, error)
 	SetMyCommands(ctx context.Context, commands []Command) error
 }
@@ -29,6 +30,8 @@ type LinkRepository interface {
 	ByTelegramUser(ctx context.Context, telegramUserID int64) (Link, error)
 	ByMemberID(ctx context.Context, memberID string) (Link, error)
 	DeleteByMemberID(ctx context.Context, memberID string) error
+	// MarkUpdateSeen records a webhook update ID; false when it was already seen (Telegram resent it).
+	MarkUpdateSeen(ctx context.Context, updateID int64, at time.Time) (bool, error)
 }
 
 // LinkStory is the web side of linking: start an attempt, read and remove the link.
@@ -66,5 +69,5 @@ type CommandHandler interface {
 
 // Notifier sends a member a Telegram message through their link.
 type Notifier interface {
-	Notify(ctx context.Context, memberID string, message OutgoingMessage, photo *Photo) (int64, error)
+	Notify(ctx context.Context, memberID string, message OutgoingMessage, photo *Photo) (Delivery, error)
 }

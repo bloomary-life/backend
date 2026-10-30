@@ -12,7 +12,8 @@ type Repository interface {
 	ClaimDue(context.Context, time.Time) (Post, error)
 	Update(context.Context, string, Status, string, string) error
 	Retry(context.Context, string, time.Time, string) error
-	Cancel(context.Context, string, string) error
+	// Cancel reports whether a pending, retry or needs_review job was cancelled.
+	Cancel(context.Context, string, string) (bool, error)
 }
 
 type Story interface {

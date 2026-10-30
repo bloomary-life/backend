@@ -32,6 +32,16 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 		return nil, fmt.Errorf("index member_insights: %w", err)
 	}
 
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS member_voice_attempts (member_id TEXT NOT NULL, seconds INTEGER NOT NULL, created_at TEXT NOT NULL)`)
+	if err != nil {
+		return nil, fmt.Errorf("create member_voice_attempts: %w", err)
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_member_voice_attempts_member_created ON member_voice_attempts(member_id, created_at)`)
+	if err != nil {
+		return nil, fmt.Errorf("index member_voice_attempts: %w", err)
+	}
+
 	return &SQLiteRepository{db: db}, nil
 }
 
@@ -97,9 +107,28 @@ func (r *SQLiteRepository) CountSince(ctx context.Context, memberID string, sour
 	return count, nil
 }
 
+// ReserveVoice is one INSERT ... SELECT, so parallel updates cannot pass the limit together.
+func (r *SQLiteRepository) ReserveVoice(ctx context.Context, memberID string, seconds int, since, at time.Time) (bool, error) {
+	from := since.UTC().Format(time.RFC3339Nano)
+	result, err := r.db.ExecContext(ctx, `INSERT INTO member_voice_attempts(member_id,seconds,created_at)
+		SELECT ?,?,? WHERE (SELECT COUNT(*) FROM member_voice_attempts WHERE member_id=? AND created_at>=?) < ?
+		AND (SELECT COALESCE(SUM(seconds),0) FROM member_voice_attempts WHERE member_id=? AND created_at>=?) + ? <= ?`,
+		memberID, seconds, at.UTC().Format(time.RFC3339Nano), memberID, from, insightDomain.DailyVoiceLimit, memberID, from, seconds, insightDomain.DailyVoiceSeconds)
+	if err != nil {
+		return false, fmt.Errorf("reserve voice member_id=%q: %w", memberID, err)
+	}
+
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
 func (r *SQLiteRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
 	if _, err := r.db.ExecContext(ctx, `DELETE FROM member_insights WHERE member_id=?`, memberID); err != nil {
 		return fmt.Errorf("delete insights member_id=%q: %w", memberID, err)
+	}
+
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM member_voice_attempts WHERE member_id=?`, memberID); err != nil {
+		return fmt.Errorf("delete voice attempts member_id=%q: %w", memberID, err)
 	}
 
 	return nil

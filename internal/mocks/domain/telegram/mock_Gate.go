@@ -48,16 +48,16 @@ func (_m *MockGate) EXPECT() *MockGate_Expecter {
 }
 
 // AnswerCallback provides a mock function for the type MockGate
-func (_mock *MockGate) AnswerCallback(ctx context.Context, callbackID string, text string) error {
-	ret := _mock.Called(ctx, callbackID, text)
+func (_mock *MockGate) AnswerCallback(ctx context.Context, callbackID string, text string, alert bool) error {
+	ret := _mock.Called(ctx, callbackID, text, alert)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AnswerCallback")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = returnFunc(ctx, callbackID, text)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, bool) error); ok {
+		r0 = returnFunc(ctx, callbackID, text, alert)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -73,11 +73,12 @@ type MockGate_AnswerCallback_Call struct {
 //   - ctx context.Context
 //   - callbackID string
 //   - text string
-func (_e *MockGate_Expecter) AnswerCallback(ctx any, callbackID any, text any) *MockGate_AnswerCallback_Call {
-	return &MockGate_AnswerCallback_Call{Call: _e.mock.On("AnswerCallback", ctx, callbackID, text)}
+//   - alert bool
+func (_e *MockGate_Expecter) AnswerCallback(ctx any, callbackID any, text any, alert any) *MockGate_AnswerCallback_Call {
+	return &MockGate_AnswerCallback_Call{Call: _e.mock.On("AnswerCallback", ctx, callbackID, text, alert)}
 }
 
-func (_c *MockGate_AnswerCallback_Call) Run(run func(ctx context.Context, callbackID string, text string)) *MockGate_AnswerCallback_Call {
+func (_c *MockGate_AnswerCallback_Call) Run(run func(ctx context.Context, callbackID string, text string, alert bool)) *MockGate_AnswerCallback_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -91,10 +92,15 @@ func (_c *MockGate_AnswerCallback_Call) Run(run func(ctx context.Context, callba
 		if args[2] != nil {
 			arg2 = args[2].(string)
 		}
+		var arg3 bool
+		if args[3] != nil {
+			arg3 = args[3].(bool)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -105,7 +111,7 @@ func (_c *MockGate_AnswerCallback_Call) Return(err error) *MockGate_AnswerCallba
 	return _c
 }
 
-func (_c *MockGate_AnswerCallback_Call) RunAndReturn(run func(ctx context.Context, callbackID string, text string) error) *MockGate_AnswerCallback_Call {
+func (_c *MockGate_AnswerCallback_Call) RunAndReturn(run func(ctx context.Context, callbackID string, text string, alert bool) error) *MockGate_AnswerCallback_Call {
 	_c.Call.Return(run)
 	return _c
 }

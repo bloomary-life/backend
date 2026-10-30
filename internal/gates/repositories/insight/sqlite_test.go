@@ -54,3 +54,38 @@ func TestInsightListsUnusedAndMarksUsed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, total)
 }
+
+func TestReserveVoiceCapsAttemptsAndSecondsAtomically(t *testing.T) {
+	// Verifies: BE-021
+	repo := newRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	since := now.Add(-24 * time.Hour)
+
+	ok, err := repo.ReserveVoice(ctx, "member-1", insightDomain.DailyVoiceSeconds-10, since, now)
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = repo.ReserveVoice(ctx, "member-1", 11, since, now)
+	require.NoError(t, err)
+	require.False(t, ok, "the minutes cap counts audio already sent")
+	ok, err = repo.ReserveVoice(ctx, "member-2", 11, since, now)
+	require.NoError(t, err)
+	require.True(t, ok, "caps are per member")
+
+	for i := 1; i < insightDomain.DailyVoiceLimit; i++ {
+		ok, err = repo.ReserveVoice(ctx, "member-3", 1, since, now)
+		require.NoError(t, err)
+		require.True(t, ok)
+	}
+	ok, err = repo.ReserveVoice(ctx, "member-3", 1, since, now)
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = repo.ReserveVoice(ctx, "member-3", 1, since, now)
+	require.NoError(t, err)
+	require.False(t, ok, "attempt count is capped")
+
+	require.NoError(t, repo.DeleteByMemberID(ctx, "member-3"))
+	ok, err = repo.ReserveVoice(ctx, "member-3", 1, since, now)
+	require.NoError(t, err)
+	require.True(t, ok, "account deletion removes voice attempts")
+}

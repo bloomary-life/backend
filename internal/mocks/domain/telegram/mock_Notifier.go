@@ -48,22 +48,22 @@ func (_m *MockNotifier) EXPECT() *MockNotifier_Expecter {
 }
 
 // Notify provides a mock function for the type MockNotifier
-func (_mock *MockNotifier) Notify(ctx context.Context, memberID string, message telegram.OutgoingMessage, photo *telegram.Photo) (int64, error) {
+func (_mock *MockNotifier) Notify(ctx context.Context, memberID string, message telegram.OutgoingMessage, photo *telegram.Photo) (telegram.Delivery, error) {
 	ret := _mock.Called(ctx, memberID, message, photo)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Notify")
 	}
 
-	var r0 int64
+	var r0 telegram.Delivery
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, telegram.OutgoingMessage, *telegram.Photo) (int64, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, telegram.OutgoingMessage, *telegram.Photo) (telegram.Delivery, error)); ok {
 		return returnFunc(ctx, memberID, message, photo)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, telegram.OutgoingMessage, *telegram.Photo) int64); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, telegram.OutgoingMessage, *telegram.Photo) telegram.Delivery); ok {
 		r0 = returnFunc(ctx, memberID, message, photo)
 	} else {
-		r0 = ret.Get(0).(int64)
+		r0 = ret.Get(0).(telegram.Delivery)
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, telegram.OutgoingMessage, *telegram.Photo) error); ok {
 		r1 = returnFunc(ctx, memberID, message, photo)
@@ -115,12 +115,12 @@ func (_c *MockNotifier_Notify_Call) Run(run func(ctx context.Context, memberID s
 	return _c
 }
 
-func (_c *MockNotifier_Notify_Call) Return(n int64, err error) *MockNotifier_Notify_Call {
-	_c.Call.Return(n, err)
+func (_c *MockNotifier_Notify_Call) Return(delivery telegram.Delivery, err error) *MockNotifier_Notify_Call {
+	_c.Call.Return(delivery, err)
 	return _c
 }
 
-func (_c *MockNotifier_Notify_Call) RunAndReturn(run func(ctx context.Context, memberID string, message telegram.OutgoingMessage, photo *telegram.Photo) (int64, error)) *MockNotifier_Notify_Call {
+func (_c *MockNotifier_Notify_Call) RunAndReturn(run func(ctx context.Context, memberID string, message telegram.OutgoingMessage, photo *telegram.Photo) (telegram.Delivery, error)) *MockNotifier_Notify_Call {
 	_c.Call.Return(run)
 	return _c
 }

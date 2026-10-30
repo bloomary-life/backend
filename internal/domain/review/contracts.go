@@ -11,9 +11,10 @@ type Repository interface {
 	// SkipNotice marks a sent notice skipped; ErrNotFound when it is not in status sent.
 	SkipNotice(ctx context.Context, memberID, id string, at time.Time) (Notice, error)
 	ListNotices(ctx context.Context, memberID string, since time.Time) ([]Notice, error)
-	CountNoticesSince(ctx context.Context, memberID string, since time.Time) (int, error)
-	SetNoticeMessage(ctx context.Context, memberID, id string, messageID int64) error
-	// NoticeByMessage finds the notice whose Telegram preview is messageID; ErrNotFound when none.
+	// CountNoticesSince counts notices sent by the AI app (requested false) or asked for by the member (requested true).
+	CountNoticesSince(ctx context.Context, memberID string, since time.Time, requested bool) (int, error)
+	SetNoticeMessage(ctx context.Context, memberID, id string, messageID, photoMessageID int64) error
+	// NoticeByMessage finds the notice whose Telegram preview (or its image) is messageID; ErrNotFound when none.
 	NoticeByMessage(ctx context.Context, memberID string, messageID int64) (Notice, error)
 	CreateEditRequest(ctx context.Context, edit EditRequest) error
 	ListEditRequests(ctx context.Context, memberID string, unappliedOnly bool) ([]EditRequest, error)
@@ -22,7 +23,7 @@ type Repository interface {
 	CountEditRequestsSince(ctx context.Context, memberID string, since time.Time) (int, error)
 	CreateSuggestion(ctx context.Context, suggestion Suggestion) error
 	RateSuggestion(ctx context.Context, memberID, id string, rating int, at time.Time) error
-	MarkSuggestionPosted(ctx context.Context, memberID, id string, at time.Time) error
+	MarkSuggestionPosted(ctx context.Context, memberID, id string, at time.Time) (Suggestion, error)
 	ListSuggestions(ctx context.Context, memberID string, since time.Time) ([]Suggestion, error)
 	CountSuggestionsSince(ctx context.Context, memberID string, since time.Time) (int, error)
 	DeleteByMemberID(ctx context.Context, memberID string) error

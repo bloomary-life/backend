@@ -3,9 +3,11 @@ package v0
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	reviewMocks "bloomary-api/internal/mocks/domain/review"
 	scheduleMocks "bloomary-api/internal/mocks/domain/scheduledpost"
 	telegramMocks "bloomary-api/internal/mocks/domain/telegram"
+	"bloomary-api/internal/platform/logger"
 	"bloomary-api/internal/stories"
 
 	"github.com/stretchr/testify/mock"
@@ -58,6 +61,7 @@ func TestTelegramWebhookPassesVoiceUpdateToBot(t *testing.T) {
 		require.Equal(t, int64(77), update.Message.From.ID)
 		require.Equal(t, "private", update.Message.ChatType)
 		require.Equal(t, &telegramDomain.Voice{FileID: "f-1", MimeType: "audio/ogg", Duration: 12, FileSize: 2048}, update.Message.Voice)
+		require.Equal(t, int64(1), update.ID)
 	case <-time.After(2 * time.Second):
 		t.Fatal("update was not handled")
 	}
@@ -85,7 +89,10 @@ func TestTelegramLinkStartReturnsDeepLinkForSignedInMember(t *testing.T) {
 func TestTelegramWebhookStoresVoiceReplyToPreviewAsEditRequest(t *testing.T) {
 	// Verifies: BE-017
 	links := telegramMocks.NewMockLinkRepository(t)
+	links.EXPECT().MarkUpdateSeen(mock.Anything, int64(2), mock.Anything).Return(true, nil)
 	links.EXPECT().ByTelegramUser(mock.Anything, int64(77)).Return(telegramDomain.Link{MemberID: "member-1", ChatID: 77, TelegramUserID: 77}, nil)
+	insights := insightMocks.NewMockRepository(t)
+	insights.EXPECT().ReserveVoice(mock.Anything, "member-1", 8, mock.Anything, mock.Anything).Return(true, nil)
 	gate := telegramMocks.NewMockGate(t)
 	gate.EXPECT().DownloadFile(mock.Anything, "f-1", mock.Anything).Return([]byte("ogg"), nil)
 	transcriber := telegramMocks.NewMockTranscriber(t)
@@ -103,7 +110,7 @@ func TestTelegramWebhookStoresVoiceReplyToPreviewAsEditRequest(t *testing.T) {
 	gate.EXPECT().SendMessage(mock.Anything, mock.Anything).Run(func(_ context.Context, m telegramDomain.OutgoingMessage) { replied <- m.Text }).Return(9, nil)
 	replies, err := stories.NewEditReplies(reviews, jobs, draftMocks.NewMockRepository(t))
 	require.NoError(t, err)
-	bot, err := stories.NewTelegramBot(links, gate, transcriber, insightMocks.NewMockRepository(t), accountMocks.NewMockRepository(t), "https://platform.bloomary.life",
+	bot, err := stories.NewTelegramBot(links, gate, transcriber, insights, accountMocks.NewMockRepository(t), "https://platform.bloomary.life",
 		stories.TelegramBotHandlers{Replies: replies})
 	require.NoError(t, err)
 	svc := &service{telegramBotStory: bot, config: Config{TelegramWebhookSecret: "webhook-secret"}}
@@ -130,4 +137,59 @@ func TestTelegramWebhookStoresVoiceReplyToPreviewAsEditRequest(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no reply")
 	}
+}
+
+type recordingBot struct {
+	mu      sync.Mutex
+	handled []string
+	done    chan struct{}
+}
+
+func (b *recordingBot) HandleUpdate(_ context.Context, update telegramDomain.Update) error {
+	if update.Message.Text == "panic" {
+		panic("boom")
+	}
+	if update.Message.Text == "slow" {
+		time.Sleep(50 * time.Millisecond)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.handled = append(b.handled, update.Message.Text)
+	if len(b.handled) == 3 {
+		close(b.done)
+	}
+	return nil
+}
+
+func TestTelegramUpdateQueueKeepsOrderPerChatAndSurvivesPanics(t *testing.T) {
+	// Verifies: BE-022
+	bot := &recordingBot{done: make(chan struct{})}
+	queue := newTelegramUpdateQueue(bot, 4, 10)
+	message := func(text string) telegramDomain.Update {
+		return telegramDomain.Update{Message: &telegramDomain.IncomingMessage{ChatID: 1, Text: text}}
+	}
+
+	log, err := logger.New(logger.Output(io.Discard))
+	require.NoError(t, err)
+	ctx := log.ToContext(context.Background())
+
+	for _, text := range []string{"slow", "panic", "make it shorter", "no, keep length"} {
+		require.True(t, queue.enqueue(ctx, message(text)))
+	}
+
+	select {
+	case <-bot.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("updates were not handled")
+	}
+	bot.mu.Lock()
+	defer bot.mu.Unlock()
+	require.Equal(t, []string{"slow", "make it shorter", "no, keep length"}, bot.handled)
+}
+
+func TestTelegramUpdateQueueRefusesWhenFull(t *testing.T) {
+	// Verifies: BE-022
+	queue := newTelegramUpdateQueue(&recordingBot{done: make(chan struct{})}, 1, 0)
+
+	require.False(t, queue.enqueue(context.Background(), telegramDomain.Update{Message: &telegramDomain.IncomingMessage{ChatID: 1}}))
 }

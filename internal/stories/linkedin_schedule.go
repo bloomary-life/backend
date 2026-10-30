@@ -89,7 +89,8 @@ func (s *linkedInScheduleStory) ListActive(ctx context.Context, memberID string)
 }
 
 func (s *linkedInScheduleStory) Cancel(ctx context.Context, memberID, draftID string) error {
-	return s.jobs.Cancel(ctx, memberID, draftID)
+	_, err := s.jobs.Cancel(ctx, memberID, draftID)
+	return err
 }
 
 func (s *linkedInScheduleStory) RunWorker(ctx context.Context) {

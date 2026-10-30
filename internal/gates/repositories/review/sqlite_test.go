@@ -41,7 +41,14 @@ func TestNoticeIsSkippedOnce(t *testing.T) {
 	list, err := repo.ListNotices(ctx, "member-1", now.Add(-time.Hour))
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	count, err := repo.CountNoticesSince(ctx, "member-1", now.Add(-time.Hour))
+	count, err := repo.CountNoticesSince(ctx, "member-1", now.Add(-time.Hour), false)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.NoError(t, repo.CreateNotice(ctx, reviewDomain.Notice{ID: "n-2", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ProposedText: "Post", Status: reviewDomain.NoticeSent, ScheduledAt: now.Add(time.Hour), CreatedAt: now, Requested: true}))
+	count, err = repo.CountNoticesSince(ctx, "member-1", now.Add(-time.Hour), false)
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "member-requested previews are counted apart")
+	count, err = repo.CountNoticesSince(ctx, "member-1", now.Add(-time.Hour), true)
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
 }
@@ -54,7 +61,9 @@ func TestSuggestionStoresRatingAndPostedFlag(t *testing.T) {
 	require.NoError(t, repo.CreateSuggestion(ctx, reviewDomain.Suggestion{ID: "s-1", MemberID: "member-1", Kind: "comment", TargetURL: "https://www.linkedin.com/feed/update/1", Text: "Good point", CreatedAt: now}))
 
 	require.NoError(t, repo.RateSuggestion(ctx, "member-1", "s-1", 4, now))
-	require.NoError(t, repo.MarkSuggestionPosted(ctx, "member-1", "s-1", now))
+	posted, err := repo.MarkSuggestionPosted(ctx, "member-1", "s-1", now)
+	require.NoError(t, err)
+	require.Equal(t, "Good point", posted.Text)
 
 	list, err := repo.ListSuggestions(ctx, "member-1", now.Add(-time.Hour))
 	require.NoError(t, err)
@@ -72,12 +81,15 @@ func TestEditRequestIsFoundByPreviewMessageAndAppliedOnce(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	require.NoError(t, repo.CreateNotice(ctx, reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ProposedText: "Post", Status: reviewDomain.NoticeSent, ScheduledAt: now.Add(time.Hour), CreatedAt: now}))
-	require.NoError(t, repo.SetNoticeMessage(ctx, "member-1", "n-1", 55))
+	require.NoError(t, repo.SetNoticeMessage(ctx, "member-1", "n-1", 55, 54))
 
 	notice, err := repo.NoticeByMessage(ctx, "member-1", 55)
 	require.NoError(t, err)
 	require.Equal(t, "draft-1", notice.DraftID)
 	require.Equal(t, int64(55), notice.MessageID)
+	byPhoto, err := repo.NoticeByMessage(ctx, "member-1", 54)
+	require.NoError(t, err)
+	require.Equal(t, "n-1", byPhoto.ID)
 
 	require.NoError(t, repo.CreateEditRequest(ctx, reviewDomain.EditRequest{ID: "e-1", MemberID: "member-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter, drop the last line", Source: "voice", CreatedAt: now}))
 	count, err := repo.CountEditRequestsSince(ctx, "member-1", now.Add(-time.Hour))
