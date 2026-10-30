@@ -8,6 +8,8 @@ import (
 
 	draftDomain "bloomary-api/internal/domain/draft"
 	insightDomain "bloomary-api/internal/domain/insight"
+	reviewDomain "bloomary-api/internal/domain/review"
+	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -34,6 +36,78 @@ type mcpAttachImageInput struct {
 	ImageURL   string `json:"image_url,omitempty" jsonschema:"Public https URL of a JPEG, PNG or GIF (max 5 MB); or send data_base64"`
 	DataBase64 string `json:"data_base64,omitempty" jsonschema:"Standard base64 image bytes; or send image_url"`
 	MimeType   string `json:"mime_type,omitempty" jsonschema:"image/jpeg, image/png or image/gif; checked against the bytes"`
+}
+
+type mcpScheduleDraftInput struct {
+	DraftID   string `json:"draft_id" jsonschema:"Draft to publish on LinkedIn"`
+	PublishAt string `json:"publish_at" jsonschema:"RFC 3339 time with offset, 5 minutes to 31 days ahead"`
+}
+
+type mcpSchedule struct {
+	ScheduleID       string `json:"scheduleId"`
+	DraftID          string `json:"draftId"`
+	Status           string `json:"status"`
+	PublishAt        string `json:"publishAt"`
+	AwaitingApproval bool   `json:"awaitingApproval"`
+}
+
+type mcpRequestApprovalInput struct {
+	DraftID string `json:"draft_id" jsonschema:"Draft scheduled with schedule_draft"`
+	Note    string `json:"note,omitempty" jsonschema:"Short note shown above the preview, e.g. which insight it came from"`
+}
+
+type mcpApproval struct {
+	ApprovalID string `json:"approvalId"`
+	DraftID    string `json:"draftId"`
+	ScheduleID string `json:"scheduleId"`
+	PublishAt  string `json:"publishAt"`
+	Status     string `json:"status"`
+}
+
+type mcpSendSuggestionInput struct {
+	Kind      string `json:"kind" jsonschema:"Only \"comment\" for now"`
+	TargetURL string `json:"target_url" jsonschema:"URL of the post to comment on"`
+	Text      string `json:"text" jsonschema:"The comment; up to 256 characters gets a Copy button"`
+	Context   string `json:"context,omitempty" jsonschema:"One line on why this post and comment"`
+}
+
+type mcpSuggestionSent struct {
+	SuggestionID string `json:"suggestionId"`
+	CopyButton   bool   `json:"copyButton"`
+}
+
+type mcpListFeedbackInput struct {
+	Since string `json:"since,omitempty" jsonschema:"RFC 3339 time; default 30 days ago"`
+}
+
+type mcpApprovalFeedback struct {
+	ApprovalID   string `json:"approvalId"`
+	DraftID      string `json:"draftId"`
+	Status       string `json:"status"`
+	Note         string `json:"note,omitempty"`
+	PublishAt    string `json:"publishAt"`
+	RequestedAt  string `json:"requestedAt"`
+	DecidedAt    string `json:"decidedAt,omitempty"`
+	ProposedText string `json:"proposedText"`
+	FinalText    string `json:"finalText,omitempty"`
+	Diff         string `json:"diff,omitempty"`
+	Edited       bool   `json:"edited"`
+}
+
+type mcpSuggestionFeedback struct {
+	SuggestionID string `json:"suggestionId"`
+	Kind         string `json:"kind"`
+	TargetURL    string `json:"targetUrl"`
+	Text         string `json:"text"`
+	Context      string `json:"context,omitempty"`
+	CreatedAt    string `json:"createdAt"`
+	Rating       int    `json:"rating,omitempty"`
+	Posted       bool   `json:"posted"`
+}
+
+type mcpFeedback struct {
+	Approvals   []mcpApprovalFeedback   `json:"approvals"`
+	Suggestions []mcpSuggestionFeedback `json:"suggestions"`
 }
 
 type mcpMarkInsightUsedInput struct {
@@ -94,6 +168,100 @@ func (s *service) addMCPContentTools(server *mcp.Server) {
 			}
 			return nil, toMCPDraft(draft), nil
 		})
+	s.addMCPReviewTools(server)
+}
+
+func (s *service) addMCPReviewTools(server *mcp.Server) {
+	mcp.AddTool(server, mcpOAuthTool("schedule_draft", "Schedule a draft for LinkedIn. It is held until the member taps Approve in Telegram (call request_approval next); changing its text or image later holds it again.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpScheduleDraftInput) (*mcp.CallToolResult, mcpSchedule, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
+			if err != nil {
+				return nil, mcpSchedule{}, err
+			}
+			publishAt, err := time.Parse(time.RFC3339, strings.TrimSpace(input.PublishAt))
+			if err != nil {
+				return nil, mcpSchedule{}, errors.New("publish_at must be an RFC 3339 time with offset")
+			}
+			post, err := s.scheduleMCPDraftStory.Schedule(ctx, memberID, draftDomain.NormalizeID(input.DraftID), publishAt)
+			if err != nil {
+				return nil, mcpSchedule{}, err
+			}
+			return nil, toMCPSchedule(post), nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("request_approval", "Send the member a Telegram preview (text, image, time) of a scheduled draft with Approve, Skip and Edit. Approve releases the schedule; Skip cancels it.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpRequestApprovalInput) (*mcp.CallToolResult, mcpApproval, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
+			if err != nil {
+				return nil, mcpApproval{}, err
+			}
+			if s.requestApprovalStory == nil {
+				return nil, mcpApproval{}, errors.New("the Bloomary Telegram bot is not configured")
+			}
+			approval, err := s.requestApprovalStory.Request(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note)
+			if err != nil {
+				return nil, mcpApproval{}, err
+			}
+			return nil, mcpApproval{ApprovalID: approval.ID, DraftID: approval.DraftID, ScheduleID: approval.ScheduleID,
+				PublishAt: approval.ScheduledAt.UTC().Format(time.RFC3339), Status: string(approval.Status)}, nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("send_suggestion", "Send the member a comment idea in Telegram with Open post, Copy, rating 1-5 and Posted buttons. The member posts it themselves.", "insights:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSendSuggestionInput) (*mcp.CallToolResult, mcpSuggestionSent, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "insights:write")
+			if err != nil {
+				return nil, mcpSuggestionSent{}, err
+			}
+			if s.sendSuggestionStory == nil {
+				return nil, mcpSuggestionSent{}, errors.New("the Bloomary Telegram bot is not configured")
+			}
+			suggestion, err := s.sendSuggestionStory.Send(ctx, reviewDomain.SuggestionInput{MemberID: memberID, Kind: strings.TrimSpace(input.Kind),
+				TargetURL: input.TargetURL, Text: input.Text, Context: input.Context})
+			if err != nil {
+				return nil, mcpSuggestionSent{}, err
+			}
+			return nil, mcpSuggestionSent{SuggestionID: suggestion.ID, CopyButton: len([]rune(suggestion.Text)) <= reviewDomain.CopyTextLimit}, nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("list_feedback", "List the member's approvals and skips (with their edits as a word diff for approved drafts) and comment suggestion ratings and posted flags.", "insights:read"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpListFeedbackInput) (*mcp.CallToolResult, mcpFeedback, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "insights:read")
+			if err != nil {
+				return nil, mcpFeedback{}, err
+			}
+			var since time.Time
+			if strings.TrimSpace(input.Since) != "" {
+				since, err = time.Parse(time.RFC3339, strings.TrimSpace(input.Since))
+				if err != nil {
+					return nil, mcpFeedback{}, errors.New("since must be an RFC 3339 time")
+				}
+			}
+			feedback, err := s.listFeedbackStory.List(ctx, memberID, since)
+			if err != nil {
+				return nil, mcpFeedback{}, err
+			}
+			return nil, toMCPFeedback(feedback), nil
+		})
+}
+
+func toMCPSchedule(post scheduledDomain.Post) mcpSchedule {
+	return mcpSchedule{ScheduleID: post.ID, DraftID: post.DraftID, Status: string(post.Status),
+		PublishAt: post.ScheduledAt.UTC().Format(time.RFC3339), AwaitingApproval: post.AwaitingApproval}
+}
+
+func toMCPFeedback(feedback reviewDomain.Feedback) mcpFeedback {
+	out := mcpFeedback{Approvals: make([]mcpApprovalFeedback, 0, len(feedback.Approvals)), Suggestions: make([]mcpSuggestionFeedback, 0, len(feedback.Suggestions))}
+	for _, a := range feedback.Approvals {
+		item := mcpApprovalFeedback{ApprovalID: a.ID, DraftID: a.DraftID, Status: string(a.Status), Note: a.Note,
+			PublishAt: a.ScheduledAt.UTC().Format(time.RFC3339), RequestedAt: a.CreatedAt.UTC().Format(time.RFC3339),
+			ProposedText: a.ProposedText, FinalText: a.FinalText, Diff: a.Diff, Edited: a.Edited}
+		if a.DecidedAt != nil {
+			item.DecidedAt = a.DecidedAt.UTC().Format(time.RFC3339)
+		}
+		out.Approvals = append(out.Approvals, item)
+	}
+	for _, sg := range feedback.Suggestions {
+		out.Suggestions = append(out.Suggestions, mcpSuggestionFeedback{SuggestionID: sg.ID, Kind: sg.Kind, TargetURL: sg.TargetURL, Text: sg.Text,
+			Context: sg.Context, CreatedAt: sg.CreatedAt.UTC().Format(time.RFC3339), Rating: sg.Rating, Posted: sg.PostedAt != nil})
+	}
+	return out
 }
 
 func toMCPInsight(in insightDomain.Insight) mcpInsight {

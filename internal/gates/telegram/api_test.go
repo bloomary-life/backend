@@ -2,15 +2,47 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	telegramDomain "bloomary-api/internal/domain/telegram"
 	"bloomary-api/internal/platform/httpclient"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestSendMessageSendsInlineKeyboardWithCopyButton(t *testing.T) {
+	// Verifies: BE-012
+	var path string
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+	}))
+	defer server.Close()
+	client, err := httpclient.NewClient(context.Background())
+	require.NoError(t, err)
+	api, err := New(client, server.URL, "123:abc")
+	require.NoError(t, err)
+
+	id, err := api.SendMessage(context.Background(), telegramDomain.OutgoingMessage{ChatID: 7, Text: "Hi", Buttons: [][]telegramDomain.Button{
+		{{Text: "Open post", URL: "https://www.linkedin.com/feed/update/1"}, {Text: "Copy", CopyText: "Great point"}},
+		{{Text: "1", CallbackData: "sg:abc:1"}},
+	}})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(42), id)
+	require.Equal(t, "/bot123:abc/sendMessage", path)
+	keyboard := payload["reply_markup"].(map[string]any)["inline_keyboard"].([]any)
+	first := keyboard[0].([]any)
+	require.Equal(t, "https://www.linkedin.com/feed/update/1", first[0].(map[string]any)["url"])
+	require.Equal(t, map[string]any{"text": "Great point"}, first[1].(map[string]any)["copy_text"])
+	require.Equal(t, "sg:abc:1", keyboard[1].([]any)[0].(map[string]any)["callback_data"])
+}
 
 func TestDownloadFileReadsFileFromBotFilePath(t *testing.T) {
 	// Verifies: BE-010

@@ -86,6 +86,11 @@ packages:
       dir: internal/mocks/domain/resend
     interfaces:
       Gate: {}
+  bloomary-api/internal/domain/review:
+    config:
+      dir: internal/mocks/domain/review
+    interfaces:
+      Repository: {}
   bloomary-api/internal/domain/scheduledpost:
     config:
       dir: internal/mocks/domain/scheduledpost

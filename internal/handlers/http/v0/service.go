@@ -19,6 +19,7 @@ import (
 	metricsDomain "bloomary-api/internal/domain/metrics"
 	notificationDomain "bloomary-api/internal/domain/notification"
 	paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
+	reviewDomain "bloomary-api/internal/domain/review"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
 	telegramDomain "bloomary-api/internal/domain/telegram"
 	"bloomary-api/internal/platform/logger"
@@ -86,6 +87,10 @@ type service struct {
 	listInsightsStory     insightDomain.ListMCPInsightsStory
 	markInsightUsedStory  insightDomain.MarkMCPInsightUsedStory
 	attachImageStory      draftDomain.AttachMCPImageStory
+	scheduleMCPDraftStory reviewDomain.ScheduleMCPDraftStory
+	requestApprovalStory  reviewDomain.RequestApprovalStory
+	sendSuggestionStory   reviewDomain.SendSuggestionStory
+	listFeedbackStory     reviewDomain.ListFeedbackStory
 	mcpAuthorizationStory mcpDomain.AuthorizationStory
 	mcpTokenVerifier      mcpDomain.AccessTokenVerifier
 	mcpGrants             mcpDomain.GrantStore
@@ -141,7 +146,12 @@ type ApplicationStories struct {
 	ListMCPInsights    insightDomain.ListMCPInsightsStory
 	MarkMCPInsightUsed insightDomain.MarkMCPInsightUsedStory
 	// AttachMCPImage stays nil while R2 draft image storage is not configured.
-	AttachMCPImage     draftDomain.AttachMCPImageStory
+	AttachMCPImage   draftDomain.AttachMCPImageStory
+	ScheduleMCPDraft reviewDomain.ScheduleMCPDraftStory
+	ListFeedback     reviewDomain.ListFeedbackStory
+	// RequestApproval and SendSuggestion stay nil while the user bot is not configured.
+	RequestApproval    reviewDomain.RequestApprovalStory
+	SendSuggestion     reviewDomain.SendSuggestionStory
 	DraftImages        draftDomain.ImageStory
 	AppleTransaction   appleiapDomain.TransactionSyncStory
 	AppleNotifications appleiapDomain.NotificationStory
@@ -215,6 +225,10 @@ func NewService(
 		listInsightsStory:     appStories.ListMCPInsights,
 		markInsightUsedStory:  appStories.MarkMCPInsightUsed,
 		attachImageStory:      appStories.AttachMCPImage,
+		scheduleMCPDraftStory: appStories.ScheduleMCPDraft,
+		requestApprovalStory:  appStories.RequestApproval,
+		sendSuggestionStory:   appStories.SendSuggestion,
+		listFeedbackStory:     appStories.ListFeedback,
 		mcpAuthorizationStory: appStories.MCPAuthorization,
 		mcpTokenVerifier:      appStories.MCPTokenVerifier,
 		mcpGrants:             appStories.MCPGrants,
@@ -249,6 +263,7 @@ func validateApplicationStories(app ApplicationStories) error {
 		{"MCP list drafts", app.ListMCPDrafts}, {"MCP get draft", app.GetMCPDraft},
 		{"MCP create draft", app.CreateMCPDraft}, {"MCP update draft", app.UpdateMCPDraft},
 		{"MCP list insights", app.ListMCPInsights}, {"MCP mark insight used", app.MarkMCPInsightUsed},
+		{"MCP schedule draft", app.ScheduleMCPDraft}, {"MCP list feedback", app.ListFeedback},
 		{"Apple transaction", app.AppleTransaction},
 		{"Apple notifications", app.AppleNotifications}, {"Paddle webhook", app.PaddleWebhook}, {"Paddle billing", app.PaddleBilling},
 		{"account deletion", app.AccountDeletion}, {"entitlement access", app.Access},

@@ -24,6 +24,8 @@ type scheduleResponse struct {
 	Status      string `json:"status"`
 	ScheduledAt string `json:"scheduledAt"`
 	Message     string `json:"message,omitempty"`
+	// AwaitingApproval: the member's AI app scheduled the post; it waits for Approve in Telegram.
+	AwaitingApproval bool `json:"awaitingApproval,omitempty"`
 }
 
 func (s *service) LinkedInSchedule(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +123,7 @@ func (s *service) LinkedInSchedules(w http.ResponseWriter, r *http.Request) {
 	}
 	response := make([]scheduleResponse, 0, len(posts))
 	for _, post := range posts {
-		response = append(response, scheduleResponse{ScheduleID: post.ID, DraftID: post.DraftID, Status: string(post.Status), ScheduledAt: post.ScheduledAt.UTC().Format(time.RFC3339), Message: post.Error})
+		response = append(response, scheduleResponse{ScheduleID: post.ID, DraftID: post.DraftID, Status: string(post.Status), ScheduledAt: post.ScheduledAt.UTC().Format(time.RFC3339), Message: post.Error, AwaitingApproval: post.AwaitingApproval})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {
@@ -131,5 +133,5 @@ func (s *service) LinkedInSchedules(w http.ResponseWriter, r *http.Request) {
 
 func writeScheduleResponse(w http.ResponseWriter, job scheduledDomain.Post) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(scheduleResponse{ScheduleID: job.ID, DraftID: job.DraftID, Status: string(job.Status), ScheduledAt: job.ScheduledAt.UTC().Format(time.RFC3339), Message: job.Error})
+	_ = json.NewEncoder(w).Encode(scheduleResponse{ScheduleID: job.ID, DraftID: job.DraftID, Status: string(job.Status), ScheduledAt: job.ScheduledAt.UTC().Format(time.RFC3339), Message: job.Error, AwaitingApproval: job.AwaitingApproval})
 }

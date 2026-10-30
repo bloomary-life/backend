@@ -25,6 +25,7 @@ import (
 	paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
 	recaptchaDomain "bloomary-api/internal/domain/recaptcha"
 	resendDomain "bloomary-api/internal/domain/resend"
+	reviewDomain "bloomary-api/internal/domain/review"
 	telegramDomain "bloomary-api/internal/domain/telegram"
 	apnsGate "bloomary-api/internal/gates/apns"
 	appleiapGate "bloomary-api/internal/gates/appleiap"
@@ -418,6 +419,23 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
+	// Any MCP change to a scheduled draft holds it again until the member approves it in Telegram.
+	draftChangeHold, err := stories.NewMCPDraftChangeHold(store.scheduledPostRepo, store.reviewRepo)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
+	heldMCPUpdate, err := stories.NewHoldOnMCPUpdate(updateMCPDraft, draftChangeHold)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
+	scheduleMCPDraft, err := stories.NewScheduleMCPDraft(schedule, store.reviewRepo)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
+	listFeedback, err := stories.NewListFeedback(access, store.reviewRepo, store.draftRepo)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
 	listMCPInsights, err := stories.NewListMCPInsights(access, store.insightRepo)
 	if err != nil {
 		return v0.ApplicationStories{}, err
@@ -458,7 +476,11 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		attachMCPImage, err = stories.NewAttachMCPImage(access, store.draftRepo, draftImages, imagefetchGate.New(30*time.Second))
+		attachImage, err := stories.NewAttachMCPImage(access, store.draftRepo, draftImages, imagefetchGate.New(30*time.Second))
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		attachMCPImage, err = stories.NewHoldOnMCPAttach(attachImage, draftChangeHold)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -479,28 +501,51 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
-	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo}
+	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo}
 	accountDeletion, err := stories.NewAccountDeletionStoryWithMemberData(store.dailyRepo, store.draftRepo, store.accountRepo, memberData, draftImages)
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
 	var telegramBot telegramDomain.BotStory
 	var telegramLink telegramDomain.LinkStory
+	var requestApproval reviewDomain.RequestApprovalStory
+	var sendSuggestion reviewDomain.SendSuggestionStory
 	if userBot != nil {
 		telegramLink, err = stories.NewTelegramLink(store.telegramLinkRepo, config.TelegramBotUsername)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin)
+		notifier, err := stories.NewTelegramNotifier(store.telegramLinkRepo, userBot)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		requestApproval, err = stories.NewRequestApproval(access, store.draftRepo, store.scheduledPostRepo, store.reviewRepo, draftImages, notifier, config.WebAllowedOrigin)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		sendSuggestion, err = stories.NewSendSuggestion(access, store.reviewRepo, notifier)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		approvals, err := stories.NewApprovalCallbacks(store.reviewRepo, store.scheduledPostRepo, userBot)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		suggestions, err := stories.NewSuggestionCallbacks(store.reviewRepo)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, approvals, suggestions)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
 	}
 	return v0.ApplicationStories{
-		TelegramBot: telegramBot, TelegramLink: telegramLink,
+		TelegramBot: telegramBot, TelegramLink: telegramLink, RequestApproval: requestApproval, SendSuggestion: sendSuggestion,
+		ScheduleMCPDraft: scheduleMCPDraft, ListFeedback: listFeedback,
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
-		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,
+		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: heldMCPUpdate, DraftImages: draftImageStory,
 		ListMCPInsights: listMCPInsights, MarkMCPInsightUsed: markMCPInsightUsed, AttachMCPImage: attachMCPImage,
 		AppleTransaction: appleSync, AppleNotifications: appleNotifications,
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,

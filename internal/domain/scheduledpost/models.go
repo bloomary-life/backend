@@ -28,11 +28,15 @@ type Post struct {
 	Status         Status
 	LinkedInPostID string
 	Error          string
+	// AwaitingApproval holds a pending post until the member approves it in Telegram.
+	AwaitingApproval bool
 }
 
 type CreateInput struct {
 	ReviewConfirmed bool
-	MemberID        string
-	DraftID         string
-	ScheduledAt     time.Time
+	// NeedsApproval is set when the member's AI app schedules through MCP: the worker skips the post until approval.
+	NeedsApproval bool
+	MemberID      string
+	DraftID       string
+	ScheduledAt   time.Time
 }
