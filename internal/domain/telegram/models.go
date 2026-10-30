@@ -58,6 +58,8 @@ type IncomingMessage struct {
 	ChatType string
 	From     Sender
 	ChatID   int64
+	// ReplyToMessageID is the bot message this one replies to (0 when it is not a reply).
+	ReplyToMessageID int64
 }
 
 type Callback struct {
@@ -82,10 +84,12 @@ type Button struct {
 	CopyText     string
 }
 
+// OutgoingMessage has inline Buttons or a persistent reply Keyboard (button texts), not both.
 type OutgoingMessage struct {
-	Text    string
-	Buttons [][]Button
-	ChatID  int64
+	Text     string
+	Buttons  [][]Button
+	Keyboard [][]string
+	ChatID   int64
 }
 
 type Photo struct {
@@ -93,6 +97,18 @@ type Photo struct {
 	MimeType string
 	Caption  string
 	ChatID   int64
+}
+
+// Command is one entry of the bot's command menu (setMyCommands).
+type Command struct {
+	Command     string
+	Description string
+}
+
+// ReplyClaim is a reply that a ReplyHandler takes; Refusal, when set, is sent instead of saving it.
+type ReplyClaim struct {
+	ID      string
+	Refusal string
 }
 
 type Transcript struct {

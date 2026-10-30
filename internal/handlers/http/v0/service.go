@@ -90,6 +90,7 @@ type service struct {
 	notifyScheduledStory  reviewDomain.NotifyScheduledStory
 	sendSuggestionStory   reviewDomain.SendSuggestionStory
 	listFeedbackStory     reviewDomain.ListFeedbackStory
+	editRequestsStory     reviewDomain.EditRequestsStory
 	mcpAuthorizationStory mcpDomain.AuthorizationStory
 	mcpTokenVerifier      mcpDomain.AccessTokenVerifier
 	mcpGrants             mcpDomain.GrantStore
@@ -147,6 +148,7 @@ type ApplicationStories struct {
 	// AttachMCPImage stays nil while R2 draft image storage is not configured.
 	AttachMCPImage draftDomain.AttachMCPImageStory
 	ListFeedback   reviewDomain.ListFeedbackStory
+	EditRequests   reviewDomain.EditRequestsStory
 	// NotifyScheduled and SendSuggestion stay nil while the user bot is not configured.
 	NotifyScheduled    reviewDomain.NotifyScheduledStory
 	SendSuggestion     reviewDomain.SendSuggestionStory
@@ -226,6 +228,7 @@ func NewService(
 		notifyScheduledStory:  appStories.NotifyScheduled,
 		sendSuggestionStory:   appStories.SendSuggestion,
 		listFeedbackStory:     appStories.ListFeedback,
+		editRequestsStory:     appStories.EditRequests,
 		mcpAuthorizationStory: appStories.MCPAuthorization,
 		mcpTokenVerifier:      appStories.MCPTokenVerifier,
 		mcpGrants:             appStories.MCPGrants,

@@ -65,3 +65,35 @@ func TestSuggestionStoresRatingAndPostedFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
 }
+
+func TestEditRequestIsFoundByPreviewMessageAndAppliedOnce(t *testing.T) {
+	// Verifies: BE-017
+	repo := newRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	require.NoError(t, repo.CreateNotice(ctx, reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ScheduleID: "job-1", ProposedText: "Post", Status: reviewDomain.NoticeSent, ScheduledAt: now.Add(time.Hour), CreatedAt: now}))
+	require.NoError(t, repo.SetNoticeMessage(ctx, "member-1", "n-1", 55))
+
+	notice, err := repo.NoticeByMessage(ctx, "member-1", 55)
+	require.NoError(t, err)
+	require.Equal(t, "draft-1", notice.DraftID)
+	require.Equal(t, int64(55), notice.MessageID)
+
+	require.NoError(t, repo.CreateEditRequest(ctx, reviewDomain.EditRequest{ID: "e-1", MemberID: "member-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter, drop the last line", Source: "voice", CreatedAt: now}))
+	count, err := repo.CountEditRequestsSince(ctx, "member-1", now.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	applied, err := repo.MarkEditApplied(ctx, "member-1", "e-1", now)
+	require.NoError(t, err)
+	require.NotNil(t, applied.AppliedAt)
+	_, err = repo.MarkEditApplied(ctx, "member-1", "e-1", now)
+	require.ErrorIs(t, err, reviewDomain.ErrEditApplied)
+
+	open, err := repo.ListEditRequests(ctx, "member-1", true)
+	require.NoError(t, err)
+	require.Empty(t, open)
+	all, err := repo.ListEditRequests(ctx, "member-1", false)
+	require.NoError(t, err)
+	require.Equal(t, "Shorter, drop the last line", all[0].Text)
+}

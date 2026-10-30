@@ -44,9 +44,12 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
 		return strings.Contains(m.Text, "Scheduled: Tue 3 Nov 2026, 09:00 UTC") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
-			strings.HasSuffix(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 1 &&
-			m.Buttons[0][0].URL == "https://platform.bloomary.life/editor?draft=draft-1" && m.Buttons[0][1].CallbackData == "sk:"+created.ID
+			strings.Contains(m.Text, "reply to this message with a voice note or text") &&
+			strings.HasSuffix(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 2 &&
+			m.Buttons[0][0].CallbackData == "pv:e" && m.Buttons[0][1].CallbackData == "sk:"+created.ID &&
+			m.Buttons[1][0].URL == "https://platform.bloomary.life/editor?draft=draft-1"
 	}), &telegramDomain.Photo{Data: []byte("png"), MimeType: "image/png", Caption: "Image for the post below"}).Return(10, nil)
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(10)).Return(nil)
 	story, err := NewNotifyScheduled(proAccess(t), drafts, jobs, reviews, objects, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
@@ -56,6 +59,7 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	require.Equal(t, "job-1", notice.ScheduleID)
 	require.Equal(t, "Proof beats adjectives.", notice.ProposedText)
 	require.Equal(t, reviewDomain.NoticeSent, created.Status)
+	require.Equal(t, int64(10), notice.MessageID)
 }
 
 func TestSkipCancelsScheduledPost(t *testing.T) {

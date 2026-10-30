@@ -58,8 +58,8 @@ type mcpNotifyScheduledInput struct {
 type mcpNotice struct {
 	NoticeID   string `json:"noticeId"`
 	DraftID    string `json:"draftId"`
-	ScheduleID string `json:"scheduleId"`
-	PublishAt  string `json:"publishAt"`
+	ScheduleID string `json:"scheduleId,omitempty"`
+	PublishAt  string `json:"publishAt,omitempty"`
 }
 
 type mcpSendSuggestionInput struct {
@@ -106,6 +106,28 @@ type mcpSuggestionFeedback struct {
 type mcpFeedback struct {
 	Posts       []mcpPostFeedback       `json:"posts"`
 	Suggestions []mcpSuggestionFeedback `json:"suggestions"`
+}
+
+type mcpListEditRequestsInput struct {
+	UnappliedOnly bool `json:"unapplied_only,omitempty" jsonschema:"Skip edit requests already marked applied"`
+}
+
+type mcpMarkEditAppliedInput struct {
+	EditID string `json:"edit_id" jsonschema:"Edit request ID from list_edit_requests"`
+}
+
+type mcpEditRequest struct {
+	EditID    string `json:"editId"`
+	DraftID   string `json:"draftId"`
+	NoticeID  string `json:"noticeId"`
+	Text      string `json:"text"`
+	Source    string `json:"source"`
+	CreatedAt string `json:"createdAt"`
+	AppliedAt string `json:"appliedAt,omitempty"`
+}
+
+type mcpEditRequestList struct {
+	EditRequests []mcpEditRequest `json:"editRequests"`
 }
 
 type mcpMarkInsightUsedInput struct {
@@ -202,6 +224,49 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			return nil, mcpNotice{NoticeID: notice.ID, DraftID: notice.DraftID, ScheduleID: notice.ScheduleID,
 				PublishAt: notice.ScheduledAt.UTC().Format(time.RFC3339)}, nil
 		})
+	mcp.AddTool(server, mcpOAuthTool("list_edit_requests", "List the member's replies (text or transcribed voice) to post previews in Telegram: how to change that draft, oldest first. Rewrite the draft, call update_draft and notify_scheduled, then mark_edit_applied.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpListEditRequestsInput) (*mcp.CallToolResult, mcpEditRequestList, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
+			if err != nil {
+				return nil, mcpEditRequestList{}, err
+			}
+			edits, err := s.editRequestsStory.List(ctx, memberID, input.UnappliedOnly)
+			if err != nil {
+				return nil, mcpEditRequestList{}, err
+			}
+			out := mcpEditRequestList{EditRequests: make([]mcpEditRequest, 0, len(edits))}
+			for _, e := range edits {
+				out.EditRequests = append(out.EditRequests, toMCPEditRequest(e))
+			}
+			return nil, out, nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("mark_edit_applied", "Mark an edit request applied after the draft was rewritten (or after telling the member it was unclear), so unapplied_only lists skip it.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpMarkEditAppliedInput) (*mcp.CallToolResult, mcpEditRequest, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
+			if err != nil {
+				return nil, mcpEditRequest{}, err
+			}
+			edit, err := s.editRequestsStory.MarkApplied(ctx, memberID, input.EditID)
+			if err != nil {
+				return nil, mcpEditRequest{}, err
+			}
+			return nil, toMCPEditRequest(edit), nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("notify_draft", "Send the member a Telegram preview of an unscheduled draft (text, image, \"Draft — not scheduled\") with Edit by voice and an Edit link; no Skip. Replies to it become edit requests.", "drafts:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpNotifyScheduledInput) (*mcp.CallToolResult, mcpNotice, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
+			if err != nil {
+				return nil, mcpNotice{}, err
+			}
+			if s.notifyScheduledStory == nil {
+				return nil, mcpNotice{}, errors.New("the Bloomary Telegram bot is not configured")
+			}
+			notice, err := s.notifyScheduledStory.NotifyDraft(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note)
+			if err != nil {
+				return nil, mcpNotice{}, err
+			}
+			return nil, mcpNotice{NoticeID: notice.ID, DraftID: notice.DraftID}, nil
+		})
 	mcp.AddTool(server, mcpOAuthTool("send_suggestion", "Send the member a comment idea in Telegram with Open post, Copy, rating 1-5 and Posted buttons. The member posts it themselves.", "insights:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSendSuggestionInput) (*mcp.CallToolResult, mcpSuggestionSent, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "insights:write")
@@ -257,6 +322,14 @@ func toMCPFeedback(feedback reviewDomain.Feedback) mcpFeedback {
 	for _, sg := range feedback.Suggestions {
 		out.Suggestions = append(out.Suggestions, mcpSuggestionFeedback{SuggestionID: sg.ID, Kind: sg.Kind, TargetURL: sg.TargetURL, Text: sg.Text,
 			Context: sg.Context, CreatedAt: sg.CreatedAt.UTC().Format(time.RFC3339), Rating: sg.Rating, Posted: sg.PostedAt != nil})
+	}
+	return out
+}
+
+func toMCPEditRequest(e reviewDomain.EditRequest) mcpEditRequest {
+	out := mcpEditRequest{EditID: e.ID, DraftID: e.DraftID, NoticeID: e.NoticeID, Text: e.Text, Source: e.Source, CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339)}
+	if e.AppliedAt != nil {
+		out.AppliedAt = e.AppliedAt.UTC().Format(time.RFC3339)
 	}
 	return out
 }

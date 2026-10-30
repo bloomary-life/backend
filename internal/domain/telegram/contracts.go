@@ -12,6 +12,7 @@ type Gate interface {
 	EditMessageText(ctx context.Context, chatID, messageID int64, text string) error
 	AnswerCallback(ctx context.Context, callbackID, text string) error
 	DownloadFile(ctx context.Context, fileID string, maxBytes int64) ([]byte, error)
+	SetMyCommands(ctx context.Context, commands []Command) error
 }
 
 // Transcriber turns a voice note into text; the audio is never stored.
@@ -47,6 +48,20 @@ type BotStory interface {
 type CallbackHandler interface {
 	Prefix() string
 	HandleCallback(ctx context.Context, link Link, callback Callback) (string, error)
+}
+
+// ReplyHandler takes a linked member's reply to one of the bot's messages, e.g. an edit request for a post preview.
+type ReplyHandler interface {
+	// Claim reports whether the reply targets a message this handler owns (ok); it reads no audio.
+	Claim(ctx context.Context, link Link, replyToMessageID int64) (claim ReplyClaim, ok bool, err error)
+	// Save stores the reply text (source "text" or "voice") and returns the confirmation for the member.
+	Save(ctx context.Context, link Link, claim ReplyClaim, text, source string) (string, error)
+}
+
+// CommandHandler answers a linked member's slash command (e.g. /planned) or its reply-keyboard button.
+type CommandHandler interface {
+	Command() string
+	HandleCommand(ctx context.Context, link Link, chatID int64) error
 }
 
 // Notifier sends a member a Telegram message through their link.

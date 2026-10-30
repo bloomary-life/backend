@@ -60,6 +60,16 @@ type replyMarkup struct {
 	InlineKeyboard [][]button `json:"inline_keyboard"`
 }
 
+type keyboardButton struct {
+	Text string `json:"text"`
+}
+
+type replyKeyboard struct {
+	Keyboard       [][]keyboardButton `json:"keyboard"`
+	ResizeKeyboard bool               `json:"resize_keyboard"`
+	IsPersistent   bool               `json:"is_persistent"`
+}
+
 type apiResponse struct {
 	Result      json.RawMessage `json:"result"`
 	Description string          `json:"description"`
@@ -71,6 +81,16 @@ func (a *API) SendMessage(ctx context.Context, message telegramDomain.OutgoingMe
 		"link_preview_options": map[string]bool{"is_disabled": true}}
 	if len(message.Buttons) > 0 {
 		payload["reply_markup"] = markup(message.Buttons)
+	} else if len(message.Keyboard) > 0 {
+		keyboard := replyKeyboard{ResizeKeyboard: true, IsPersistent: true}
+		for _, row := range message.Keyboard {
+			buttons := make([]keyboardButton, 0, len(row))
+			for _, text := range row {
+				buttons = append(buttons, keyboardButton{Text: text})
+			}
+			keyboard.Keyboard = append(keyboard.Keyboard, buttons)
+		}
+		payload["reply_markup"] = keyboard
 	}
 
 	var result struct {
@@ -121,6 +141,16 @@ func (a *API) SendPhoto(ctx context.Context, photo telegramDomain.Photo) (int64,
 func (a *API) EditMessageText(ctx context.Context, chatID, messageID int64, text string) error {
 	return a.callJSON(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text,
 		"reply_markup": replyMarkup{InlineKeyboard: [][]button{}}}, nil)
+}
+
+// SetMyCommands sets the command menu shown next to the message field.
+func (a *API) SetMyCommands(ctx context.Context, commands []telegramDomain.Command) error {
+	list := make([]map[string]string, 0, len(commands))
+	for _, c := range commands {
+		list = append(list, map[string]string{"command": c.Command, "description": c.Description})
+	}
+
+	return a.callJSON(ctx, "setMyCommands", map[string]any{"commands": list}, nil)
 }
 
 func (a *API) AnswerCallback(ctx context.Context, callbackID, text string) error {

@@ -384,3 +384,60 @@ func (_c *MockGate_SendPhoto_Call) RunAndReturn(run func(ctx context.Context, ph
 	_c.Call.Return(run)
 	return _c
 }
+
+// SetMyCommands provides a mock function for the type MockGate
+func (_mock *MockGate) SetMyCommands(ctx context.Context, commands []telegram.Command) error {
+	ret := _mock.Called(ctx, commands)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMyCommands")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, []telegram.Command) error); ok {
+		r0 = returnFunc(ctx, commands)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockGate_SetMyCommands_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMyCommands'
+type MockGate_SetMyCommands_Call struct {
+	*mock.Call
+}
+
+// SetMyCommands is a helper method to define mock.On call
+//   - ctx context.Context
+//   - commands []telegram.Command
+func (_e *MockGate_Expecter) SetMyCommands(ctx any, commands any) *MockGate_SetMyCommands_Call {
+	return &MockGate_SetMyCommands_Call{Call: _e.mock.On("SetMyCommands", ctx, commands)}
+}
+
+func (_c *MockGate_SetMyCommands_Call) Run(run func(ctx context.Context, commands []telegram.Command)) *MockGate_SetMyCommands_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 []telegram.Command
+		if args[1] != nil {
+			arg1 = args[1].([]telegram.Command)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGate_SetMyCommands_Call) Return(err error) *MockGate_SetMyCommands_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockGate_SetMyCommands_Call) RunAndReturn(run func(ctx context.Context, commands []telegram.Command) error) *MockGate_SetMyCommands_Call {
+	_c.Call.Return(run)
+	return _c
+}

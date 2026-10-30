@@ -21,6 +21,10 @@ import (
 	"bloomary-api/internal/platform/logger"
 )
 
+const noticeHeader = "Scheduled LinkedIn post. It goes out at this time unless you tap Skip. To change it, reply to this message with a voice note or text."
+
+const draftHeader = "Post draft for LinkedIn. To change it, reply to this message with a voice note or text."
+
 // Telegram counts message length in UTF-16 code units; a message holds at most 4096.
 const telegramMessageLimit = 4096
 
@@ -60,6 +64,42 @@ func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note st
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
+	return s.send(ctx, memberID, draft, job, note)
+}
+
+// NotifyDraft sends the preview of an unscheduled, unpublished draft (draft-only mode): no time and no Skip.
+func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, note string) (reviewDomain.Notice, error) {
+	if _, err := requireMCPPaid(ctx, s.access, memberID); err != nil {
+		return reviewDomain.Notice{}, err
+	}
+	if utf8.RuneCountInString(note) > reviewDomain.MaxNoteRunes {
+		return reviewDomain.Notice{}, fmt.Errorf("note is longer than %d characters", reviewDomain.MaxNoteRunes)
+	}
+	draft, err := s.drafts.ByID(ctx, memberID, draftID)
+	if err != nil {
+		return reviewDomain.Notice{}, ErrMCPDraftNotFound
+	}
+	if draft.Status != "draft" {
+		return reviewDomain.Notice{}, ErrMCPDraftNotEditable
+	}
+	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note)
+}
+
+// Preview sends the preview of one of the member's scheduled posts on request in the bot (/planned → Preview).
+func (s *NotifyScheduled) Preview(ctx context.Context, memberID, scheduleID string) (reviewDomain.Notice, error) {
+	job, err := s.jobs.ByID(ctx, memberID, scheduleID)
+	if err != nil || !stillScheduled(job.Status) {
+		return reviewDomain.Notice{}, reviewDomain.ErrNotScheduled
+	}
+	draft, err := s.drafts.ByID(ctx, memberID, job.DraftID)
+	if err != nil {
+		return reviewDomain.Notice{}, ErrMCPDraftNotFound
+	}
+	return s.send(ctx, memberID, draft, job, "")
+}
+
+// send stores a notice and sends the preview; a reply to the preview message becomes an edit request.
+func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note string) (reviewDomain.Notice, error) {
 	now := time.Now().UTC()
 	count, err := s.reviews.CountNoticesSince(ctx, memberID, now.Add(-24*time.Hour))
 	if err != nil {
@@ -72,7 +112,7 @@ func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note st
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
-	notice := reviewDomain.Notice{ID: id, MemberID: memberID, DraftID: draftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
+	notice := reviewDomain.Notice{ID: id, MemberID: memberID, DraftID: draft.DraftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
 		ProposedText: draft.Body, Note: strings.TrimSpace(note), Status: reviewDomain.NoticeSent, CreatedAt: now}
 	if err := s.reviews.CreateNotice(ctx, notice); err != nil {
 		return reviewDomain.Notice{}, err
@@ -85,14 +125,23 @@ func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note st
 		}
 		photo = &telegramDomain.Photo{Data: data, MimeType: draft.Image.MimeType, Caption: "Image for the post below"}
 	}
-	message := telegramDomain.OutgoingMessage{Text: noticeText("Scheduled LinkedIn post. It goes out at this time unless you tap Skip.", notice), Buttons: [][]telegramDomain.Button{
-		{{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draftID)}, {Text: "Skip", CallbackData: "sk:" + id}},
+	header, first := noticeHeader, []telegramDomain.Button{{Text: "Edit by voice", CallbackData: previewPrefix + "e"}, {Text: "Skip", CallbackData: "sk:" + id}}
+	if job.ID == "" {
+		header, first = draftHeader, first[:1]
+	}
+	message := telegramDomain.OutgoingMessage{Text: noticeText(header, notice), Buttons: [][]telegramDomain.Button{
+		first, {{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draft.DraftID)}},
 	}}
-	if _, err := s.notifier.Notify(ctx, memberID, message, photo); err != nil {
+	messageID, err := s.notifier.Notify(ctx, memberID, message, photo)
+	if err != nil {
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
 			return reviewDomain.Notice{}, reviewDomain.ErrNotLinked
 		}
 		return reviewDomain.Notice{}, fmt.Errorf("send Telegram notice: %w", err)
+	}
+	notice.MessageID = messageID
+	if err := s.reviews.SetNoticeMessage(ctx, memberID, id, messageID); err != nil {
+		return reviewDomain.Notice{}, err
 	}
 	return notice, nil
 }
@@ -103,11 +152,16 @@ func (s *NotifyScheduled) activeSchedule(ctx context.Context, memberID, draftID 
 		return scheduledDomain.Post{}, err
 	}
 	for _, job := range jobs {
-		if job.DraftID == draftID && (job.Status == scheduledDomain.Pending || job.Status == scheduledDomain.Retry) {
+		if job.DraftID == draftID && stillScheduled(job.Status) {
 			return job, nil
 		}
 	}
 	return scheduledDomain.Post{}, reviewDomain.ErrNotScheduled
+}
+
+// stillScheduled is true while the post has not started going out and was not cancelled.
+func stillScheduled(status scheduledDomain.Status) bool {
+	return status == scheduledDomain.Pending || status == scheduledDomain.Retry || status == scheduledDomain.NeedsReview
 }
 
 // SkipCallbacks handles Skip ("sk:<notice id>"): it cancels the post's schedule unless it already went out.
@@ -317,6 +371,9 @@ func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notic
 	if notice.Status == reviewDomain.NoticeSkipped {
 		return string(reviewDomain.NoticeSkipped)
 	}
+	if notice.ScheduleID == "" {
+		return "draft"
+	}
 	job, err := s.jobs.ByID(ctx, notice.MemberID, notice.ScheduleID)
 	if err != nil {
 		return "unknown"
@@ -331,6 +388,9 @@ func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notic
 
 func noticeText(header string, notice reviewDomain.Notice) string {
 	head := header + "\nScheduled: " + formatPostTime(notice.ScheduledAt)
+	if notice.ScheduleID == "" {
+		head = header + "\nDraft — not scheduled"
+	}
 	if notice.Note != "" {
 		head += "\nNote: " + notice.Note
 	}

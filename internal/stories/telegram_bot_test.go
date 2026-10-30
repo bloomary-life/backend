@@ -34,7 +34,7 @@ func newBotFixture(t *testing.T) botFixture {
 		transcriber: telegramMocks.NewMockTranscriber(t), insights: insightMocks.NewMockRepository(t),
 		accounts: accountMocks.NewMockRepository(t),
 	}
-	story, err := NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life")
+	story, err := NewTelegramBot(f.links, f.gate, f.transcriber, f.insights, f.accounts, "https://platform.bloomary.life", TelegramBotHandlers{})
 	require.NoError(t, err)
 	f.story = story
 	return f
@@ -70,6 +70,7 @@ func TestTelegramLinkAsksForTheNumberShownInBloomaryAndLinksOnMatch(t *testing.T
 	})).Return(nil)
 	f.gate.EXPECT().EditMessageText(mock.Anything, int64(100), int64(9), mock.MatchedBy(func(text string) bool { return strings.HasPrefix(text, "Linked to Bloomary.") })).Return(nil)
 	f.gate.EXPECT().AnswerCallback(mock.Anything, "cb-1", "").Return(nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botHelp, Keyboard: botKeyboard}).Return(10, nil)
 
 	require.NoError(t, f.story.HandleUpdate(context.Background(), telegramDomain.Update{Callback: &telegramDomain.Callback{
 		ID: "cb-1", Data: "tl:42:" + testNonce, ChatID: 100, MessageID: 9, From: telegramDomain.Sender{ID: 100, Username: "kat"}}}))
@@ -83,7 +84,7 @@ func TestTelegramTextFromLinkedMemberIsSavedAsInsight(t *testing.T) {
 	f.insights.EXPECT().Create(mock.Anything, mock.MatchedBy(func(in insightDomain.Insight) bool {
 		return in.MemberID == "member-1" && in.Text == "Recruiters skim the first two lines" && in.Source == insightDomain.SourceText && in.ID != ""
 	})).Return(nil)
-	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botSaved}).Return(2, nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: botSaved, Keyboard: botKeyboard}).Return(2, nil)
 
 	require.NoError(t, f.story.HandleUpdate(context.Background(), privateMessage("Recruiters skim the first two lines")))
 }
@@ -99,7 +100,7 @@ func TestTelegramVoiceIsTranscribedAndSavedWithoutKeepingAudio(t *testing.T) {
 	f.insights.EXPECT().Create(mock.Anything, mock.MatchedBy(func(in insightDomain.Insight) bool {
 		return in.Text == "Hiring managers want proof, not adjectives." && in.Source == insightDomain.SourceVoice
 	})).Return(nil)
-	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: "Saved: “Hiring managers want proof, not adjectives.”"}).Return(3, nil)
+	f.gate.EXPECT().SendMessage(mock.Anything, telegramDomain.OutgoingMessage{ChatID: 100, Text: "Saved: “Hiring managers want proof, not adjectives.”" + botSavedTail, Keyboard: botKeyboard}).Return(3, nil)
 	update := privateMessage("")
 	update.Message.Voice = &telegramDomain.Voice{FileID: "voice-1", MimeType: "audio/ogg", Duration: 12, FileSize: 8}
 

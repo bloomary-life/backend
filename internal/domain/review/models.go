@@ -13,6 +13,7 @@ var (
 	ErrNotLinked     = errors.New("the member has not linked Telegram yet (Bloomary → Settings → Telegram)")
 	ErrUnknownKind   = errors.New(`kind must be "comment"`)
 	ErrInvalidTarget = errors.New("target_url must be an http or https URL")
+	ErrEditApplied   = errors.New("this edit request is already applied")
 )
 
 const (
@@ -21,6 +22,10 @@ const (
 	MaxSuggestionRunes   = 3000
 	MaxContextRunes      = 1000
 	MaxNoteRunes         = 1000
+	// DailyEditLimit caps edit requests (replies to post previews) per member per 24 hours.
+	DailyEditLimit = 30
+	// MaxEditRunes caps one stored edit request.
+	MaxEditRunes = 4096
 	// CopyTextLimit is the Bot API limit for a CopyTextButton (1-256 characters).
 	CopyTextLimit = 256
 	// FeedbackWindow is how far back list_feedback looks when no since is given.
@@ -47,6 +52,21 @@ type Notice struct {
 	ProposedText string
 	Note         string
 	Status       NoticeStatus
+	// MessageID is the Telegram message of the preview; a reply to it becomes an edit request.
+	MessageID int64
+}
+
+// EditRequest is the member's reply (text or transcribed voice) to a post preview: how to change the draft.
+// The member's AI app rewrites the draft, sends a new preview and marks the request applied.
+type EditRequest struct {
+	CreatedAt time.Time
+	AppliedAt *time.Time
+	ID        string
+	MemberID  string
+	DraftID   string
+	NoticeID  string
+	Text      string
+	Source    string
 }
 
 // Suggestion is a comment idea sent to the member's Telegram, with the member's rating and posted flag.

@@ -209,6 +209,12 @@ func main() {
 	if err != nil {
 		appLogger.Fatal(fmt.Errorf("init application stories: %w", err))
 	}
+	if userBot != nil {
+		// The command menu is best effort: the bot works without it.
+		if err := userBot.SetMyCommands(ctx, stories.BotCommands); err != nil {
+			appLogger.WithError(err).Error("telegram_set_commands_failed")
+		}
+	}
 	apiMux, err := newMuxWithLinkedInConfig(
 		ctx, draftImageStore, linkedInGate, store.accountRepo, flows, appStories,
 		endpointLimiters, handlerCfg,
@@ -493,6 +499,10 @@ func newApplicationStories(
 	var telegramLink telegramDomain.LinkStory
 	var notifyScheduled reviewDomain.NotifyScheduledStory
 	var sendSuggestion reviewDomain.SendSuggestionStory
+	editRequests, err := stories.NewEditRequests(access, store.reviewRepo)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
 	if userBot != nil {
 		telegramLink, err = stories.NewTelegramLink(store.telegramLinkRepo, config.TelegramBotUsername)
 		if err != nil {
@@ -502,7 +512,16 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		notifyScheduled, err = stories.NewNotifyScheduled(access, store.draftRepo, store.scheduledPostRepo, store.reviewRepo, draftImages, notifier, config.WebAllowedOrigin)
+		notify, err := stories.NewNotifyScheduled(access, store.draftRepo, store.scheduledPostRepo, store.reviewRepo, draftImages, notifier, config.WebAllowedOrigin)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		notifyScheduled = notify
+		planned, err := stories.NewPlannedPosts(store.scheduledPostRepo, store.draftRepo, notify, userBot)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		editReplies, err := stories.NewEditReplies(store.reviewRepo, store.scheduledPostRepo, store.draftRepo)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -518,14 +537,15 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, skips, suggestions)
+		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, stories.TelegramBotHandlers{
+			Replies: editReplies, Callbacks: []telegramDomain.CallbackHandler{skips, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
 	}
 	return v0.ApplicationStories{
 		TelegramBot: telegramBot, TelegramLink: telegramLink, NotifyScheduled: notifyScheduled, SendSuggestion: sendSuggestion,
-		ListFeedback: listFeedback,
+		ListFeedback: listFeedback, EditRequests: editRequests,
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
 		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,

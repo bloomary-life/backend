@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,7 @@ func TestMCPNotifyScheduledSendsTelegramPreview(t *testing.T) {
 	reviews := reviewMocks.NewMockRepository(t)
 	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
 	reviews.EXPECT().CreateNotice(mock.Anything, mock.Anything).Return(nil)
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(1)).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.Anything, (*telegramDomain.Photo)(nil)).Return(1, nil)
 	notify, err := stories.NewNotifyScheduled(paidAccess(t), drafts, jobs, reviews, nil, notifier, "https://platform.bloomary.life")
@@ -230,4 +232,55 @@ func TestMCPListFeedbackReturnsOutcomesDiffAndRatings(t *testing.T) {
 	require.Equal(t, mcpPostFeedback{NoticeID: "n-1", DraftID: "draft-1", Status: "published", PublishAt: "2026-10-30T09:00:00Z", NotifiedAt: "2026-10-30T09:00:00Z",
 		ProposedText: "Hiring is hard", FinalText: "Hiring is slow", Diff: "Hiring is [-hard-]{+slow+}", Edited: true}, out.Posts[0])
 	require.Equal(t, mcpSuggestionFeedback{SuggestionID: "s-1", Kind: "comment", TargetURL: "https://x.test/p", Text: "Nice", CreatedAt: "2026-10-30T09:00:00Z", Rating: 4, Posted: true}, out.Suggestions[0])
+}
+
+func TestMCPListEditRequestsAndMarkEditApplied(t *testing.T) {
+	// Verifies: BE-017
+	created := time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC)
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().ListEditRequests(mock.Anything, "member-1", true).Return([]reviewDomain.EditRequest{
+		{ID: "e-1", MemberID: "member-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: created},
+	}, nil)
+	reviews.EXPECT().MarkEditApplied(mock.Anything, "member-1", "e-1", mock.Anything).
+		Return(reviewDomain.EditRequest{ID: "e-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: created, AppliedAt: &created}, nil)
+	edits, err := stories.NewEditRequests(paidAccess(t), reviews)
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{editRequestsStory: edits})
+
+	listed := callMCPTool(t, svc, []string{"drafts:write"}, "list_edit_requests", map[string]any{"unapplied_only": true})
+	marked := callMCPTool(t, svc, []string{"drafts:write"}, "mark_edit_applied", map[string]any{"edit_id": "e-1"})
+
+	require.False(t, listed.Result.IsError, listed.Result.Content)
+	var list mcpEditRequestList
+	require.NoError(t, json.Unmarshal(listed.Result.StructuredContent, &list))
+	require.Equal(t, []mcpEditRequest{{EditID: "e-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: "2026-10-30T09:00:00Z"}}, list.EditRequests)
+	require.False(t, marked.Result.IsError, marked.Result.Content)
+	var out mcpEditRequest
+	require.NoError(t, json.Unmarshal(marked.Result.StructuredContent, &out))
+	require.Equal(t, "2026-10-30T09:00:00Z", out.AppliedAt)
+}
+
+func TestMCPNotifyDraftSendsUnscheduledPreviewWithoutSkip(t *testing.T) {
+	// Verifies: BE-019
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomainDraft("draft-1"), nil)
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything).Return(0, nil)
+	reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.ScheduleID == "" && n.DraftID == "draft-1" })).Return(nil)
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(4)).Return(nil)
+	notifier := telegramMocks.NewMockNotifier(t)
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return strings.Contains(m.Text, "Draft — not scheduled") && len(m.Buttons[0]) == 1 && m.Buttons[0][0].Text == "Edit by voice"
+	}), (*telegramDomain.Photo)(nil)).Return(4, nil)
+	notify, err := stories.NewNotifyScheduled(paidAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{notifyScheduledStory: notify})
+
+	result := callMCPTool(t, svc, []string{"drafts:write"}, "notify_draft", map[string]any{"draft_id": "draft-1"})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+	var out mcpNotice
+	require.NoError(t, json.Unmarshal(result.Result.StructuredContent, &out))
+	require.Equal(t, "draft-1", out.DraftID)
+	require.Empty(t, out.ScheduleID)
 }

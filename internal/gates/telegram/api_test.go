@@ -44,6 +44,34 @@ func TestSendMessageSendsInlineKeyboardWithCopyButton(t *testing.T) {
 	require.Equal(t, "sg:abc:1", keyboard[1].([]any)[0].(map[string]any)["callback_data"])
 }
 
+func TestSendMessageSendsPersistentReplyKeyboardAndSetMyCommandsSendsMenu(t *testing.T) {
+	// Verifies: BE-018
+	var paths []string
+	var payloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		paths, payloads = append(paths, r.URL.Path), append(payloads, payload)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":43}}`))
+	}))
+	defer server.Close()
+	client, err := httpclient.NewClient(context.Background())
+	require.NoError(t, err)
+	api, err := New(client, server.URL, "123:abc")
+	require.NoError(t, err)
+
+	_, err = api.SendMessage(context.Background(), telegramDomain.OutgoingMessage{ChatID: 7, Text: "Saved", Keyboard: [][]string{{"Planned posts", "Help"}}})
+	require.NoError(t, err)
+	require.NoError(t, api.SetMyCommands(context.Background(), []telegramDomain.Command{{Command: "planned", Description: "Scheduled posts"}}))
+
+	require.Equal(t, []string{"/bot123:abc/sendMessage", "/bot123:abc/setMyCommands"}, paths)
+	markup := payloads[0]["reply_markup"].(map[string]any)
+	require.Equal(t, true, markup["is_persistent"])
+	require.Equal(t, true, markup["resize_keyboard"])
+	require.Equal(t, "Help", markup["keyboard"].([]any)[0].([]any)[1].(map[string]any)["text"])
+	require.Equal(t, []any{map[string]any{"command": "planned", "description": "Scheduled posts"}}, payloads[1]["commands"])
+}
+
 func TestDownloadFileReadsFileFromBotFilePath(t *testing.T) {
 	// Verifies: BE-010
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

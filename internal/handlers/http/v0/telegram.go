@@ -35,6 +35,9 @@ type telegramUpdate struct {
 			Duration int    `json:"duration"`
 			FileSize int64  `json:"file_size"`
 		} `json:"voice"`
+		ReplyToMessage *struct {
+			MessageID int64 `json:"message_id"`
+		} `json:"reply_to_message"`
 		Text string       `json:"text"`
 		Chat telegramChat `json:"chat"`
 	} `json:"message"`
@@ -152,6 +155,9 @@ func toTelegramUpdate(raw telegramUpdate) telegramDomain.Update {
 			From: telegramDomain.Sender{ID: m.From.ID, Username: m.From.Username, IsBot: m.From.IsBot}}
 		if m.Voice != nil {
 			message.Voice = &telegramDomain.Voice{FileID: m.Voice.FileID, MimeType: m.Voice.MimeType, Duration: m.Voice.Duration, FileSize: m.Voice.FileSize}
+		}
+		if m.ReplyToMessage != nil {
+			message.ReplyToMessageID = m.ReplyToMessage.MessageID
 		}
 		update.Message = message
 	}
