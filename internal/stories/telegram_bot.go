@@ -188,21 +188,27 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 
 // replyNotLinked answers an unlinked user at most once per notLinkedRepeat, without the bot keyboard.
 func (s *telegramBot) replyNotLinked(ctx context.Context, message *telegramDomain.IncomingMessage) error {
-	now := time.Now()
+	now, userID, chatID := time.Now(), message.From.ID, message.ChatID
 	s.notLinkedMu.Lock()
-	if _, seen := s.notLinkedAt[message.From.ID]; seen {
+	if _, seen := s.notLinkedAt[userID]; seen {
 		s.notLinkedMu.Unlock()
 		return nil
 	}
-	s.notLinkedAt[message.From.ID] = now
+	s.notLinkedAt[userID] = now
 	s.notLinkedMu.Unlock()
+	s.forgetNotLinkedAfter(userID)
+	_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: fmt.Sprintf(botNotLinked, s.platformURL)})
+	return err
+}
+
+// forgetNotLinkedAfter deletes the user ID after notLinkedTTL. The timer holds only the ID, never the message (its
+// text, username or voice), so nothing else of an unlinked user's message stays in memory.
+func (s *telegramBot) forgetNotLinkedAfter(userID int64) {
 	time.AfterFunc(s.notLinkedTTL, func() {
 		s.notLinkedMu.Lock()
-		delete(s.notLinkedAt, message.From.ID)
+		delete(s.notLinkedAt, userID)
 		s.notLinkedMu.Unlock()
 	})
-	_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: message.ChatID, Text: fmt.Sprintf(botNotLinked, s.platformURL)})
-	return err
 }
 
 // confirmation is the save reply: weekly numbers get their own for members with a weekly report.

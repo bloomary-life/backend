@@ -250,7 +250,7 @@ func TestMCPListEditRequestsAndMarkEditApplied(t *testing.T) {
 	created := time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC)
 	reviews := reviewMocks.NewMockRepository(t)
 	reviews.EXPECT().ListEditRequests(mock.Anything, "member-1", true).Return([]reviewDomain.EditRequest{
-		{ID: "e-1", MemberID: "member-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: created},
+		{ID: "e-1", MemberID: "member-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: created, FirstComment: "Book: https://lumen.observer"},
 	}, nil)
 	reviews.EXPECT().MarkEditApplied(mock.Anything, "member-1", "e-1", mock.Anything).
 		Return(reviewDomain.EditRequest{ID: "e-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: created, AppliedAt: &created}, nil)
@@ -264,11 +264,36 @@ func TestMCPListEditRequestsAndMarkEditApplied(t *testing.T) {
 	require.False(t, listed.Result.IsError, listed.Result.Content)
 	var list mcpEditRequestList
 	require.NoError(t, json.Unmarshal(listed.Result.StructuredContent, &list))
-	require.Equal(t, []mcpEditRequest{{EditID: "e-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: "2026-10-30T09:00:00Z"}}, list.EditRequests)
+	require.Equal(t, []mcpEditRequest{{EditID: "e-1", DraftID: "draft-1", NoticeID: "n-1", Text: "Shorter", Source: "voice", CreatedAt: "2026-10-30T09:00:00Z", FirstComment: "Book: https://lumen.observer"}}, list.EditRequests)
 	require.False(t, marked.Result.IsError, marked.Result.Content)
 	var out mcpEditRequest
 	require.NoError(t, json.Unmarshal(marked.Result.StructuredContent, &out))
 	require.Equal(t, "2026-10-30T09:00:00Z", out.AppliedAt)
+}
+
+func TestMCPNotifyDraftClearFirstCommentDropsTheStoredOne(t *testing.T) {
+	// Verifies: BE-019
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomainDraft("draft-1"), nil)
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, false).Return(0, nil)
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return([]reviewDomain.Notice{
+		{ID: "n-0", DraftID: "draft-1", Status: reviewDomain.NoticeSent, FirstComment: "Book: https://lumen.observer/call/katerina"}}, nil)
+	reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.FirstComment == "" })).Return(nil)
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(4), int64(0)).Return(nil)
+	notifier := telegramMocks.NewMockNotifier(t)
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return !strings.Contains(m.Text, "lumen.observer")
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 4}, nil)
+	notify, err := stories.NewNotifyScheduled(paidAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{notifyScheduledStory: notify})
+
+	both := callMCPTool(t, svc, []string{"drafts:write"}, "notify_draft", map[string]any{"draft_id": "draft-1", "first_comment": "x", "clear_first_comment": true})
+	result := callMCPTool(t, svc, []string{"drafts:write"}, "notify_draft", map[string]any{"draft_id": "draft-1", "note": "Edited: removed the booking link", "clear_first_comment": true})
+
+	require.True(t, both.Result.IsError, "first_comment together with clear_first_comment accepted")
+	require.False(t, result.Result.IsError, result.Result.Content)
 }
 
 func TestMCPNotifyDraftSendsUnscheduledPreviewWithoutSkip(t *testing.T) {

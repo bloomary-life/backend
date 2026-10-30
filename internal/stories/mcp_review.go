@@ -65,11 +65,12 @@ func (s *NotifyScheduled) Notify(ctx context.Context, memberID, draftID, note st
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
-	return s.send(ctx, memberID, draft, job, note, "", false)
+	return s.send(ctx, memberID, draft, job, note, "", false, false)
 }
 
 // NotifyDraft sends the preview of an unscheduled, unpublished draft (draft-only mode): no time and no Skip.
-func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, note, firstComment string) (reviewDomain.Notice, error) {
+// clearFirstComment sends it without a first comment and stops later previews from bringing the old one back.
+func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, note, firstComment string, clearFirstComment bool) (reviewDomain.Notice, error) {
 	if _, err := requireMCPPaid(ctx, s.access, memberID); err != nil {
 		return reviewDomain.Notice{}, err
 	}
@@ -79,6 +80,9 @@ func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, no
 	if firstComment = strings.TrimSpace(firstComment); utf8.RuneCountInString(firstComment) > reviewDomain.MaxFirstCommentRunes {
 		return reviewDomain.Notice{}, fmt.Errorf("first_comment is longer than %d characters", reviewDomain.MaxFirstCommentRunes)
 	}
+	if clearFirstComment && firstComment != "" {
+		return reviewDomain.Notice{}, errors.New("send either first_comment (to replace it) or clear_first_comment (to remove it), not both")
+	}
 	draft, err := s.drafts.ByID(ctx, memberID, draftID)
 	if err != nil {
 		return reviewDomain.Notice{}, ErrMCPDraftNotFound
@@ -86,7 +90,7 @@ func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, no
 	if draft.Status != "draft" {
 		return reviewDomain.Notice{}, ErrMCPDraftNotEditable
 	}
-	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note, firstComment, false)
+	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, note, firstComment, clearFirstComment, false)
 }
 
 // PreviewDraft sends again the draft of one of the member's draft previews on request in the bot (My posts → Preview).
@@ -100,7 +104,7 @@ func (s *NotifyScheduled) PreviewDraft(ctx context.Context, memberID, noticeID s
 	if err != nil || draft.Status != "draft" {
 		return reviewDomain.Notice{}, ErrMCPDraftNotFound
 	}
-	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, "", "", true)
+	return s.send(ctx, memberID, draft, scheduledDomain.Post{}, "", "", false, true)
 }
 
 // Preview sends the preview of one of the member's scheduled posts on request in the bot (/planned → Preview).
@@ -113,12 +117,13 @@ func (s *NotifyScheduled) Preview(ctx context.Context, memberID, scheduleID stri
 	if err != nil {
 		return reviewDomain.Notice{}, ErrMCPDraftNotFound
 	}
-	return s.send(ctx, memberID, draft, job, "", "", true)
+	return s.send(ctx, memberID, draft, job, "", "", false, true)
 }
 
 // send stores a notice and sends the preview; a reply to the preview message (or its image) becomes an edit request.
 // requested previews (the member's Preview taps) count against their own daily limit, not the AI app's.
-func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note, firstComment string, requested bool) (reviewDomain.Notice, error) {
+// clearFirstComment keeps the first comment empty instead of taking it from the earlier preview.
+func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draftDomain.Draft, job scheduledDomain.Post, note, firstComment string, clearFirstComment, requested bool) (reviewDomain.Notice, error) {
 	now := time.Now().UTC()
 	count, err := s.reviews.CountNoticesSince(ctx, memberID, now.Add(-24*time.Hour), requested)
 	if err != nil {
@@ -137,7 +142,7 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 	}
 	note = strings.TrimSpace(note)
 	if job.ID == "" && (firstComment == "" || note == "") {
-		firstComment, note = s.earlierDraftPreview(ctx, memberID, draft.DraftID, now, firstComment, note)
+		firstComment, note = s.earlierDraftPreview(ctx, memberID, draft.DraftID, now, firstComment, note, clearFirstComment)
 	}
 	notice := reviewDomain.Notice{ID: id, MemberID: memberID, DraftID: draft.DraftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
 		ProposedText: draft.Body, Note: note, FirstComment: firstComment, Status: reviewDomain.NoticeSent, CreatedAt: now, Requested: requested}
@@ -180,24 +185,33 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 	return notice, nil
 }
 
-// earlierDraftPreview fills an empty first comment and note from the draft's newest earlier preview that has them, so the
-// links Kat pastes under the post never vanish when an edit or a My posts tap replaces the preview that showed them.
-func (s *NotifyScheduled) earlierDraftPreview(ctx context.Context, memberID, draftID string, now time.Time, firstComment, note string) (string, string) {
+// earlierNotePrefix marks a note taken from an earlier preview, so "Edited: shorter" is not read as a new edit.
+const earlierNotePrefix = "(from the preview of "
+
+// earlierDraftPreview fills an empty first comment and note from the draft's newest earlier preview, so the links
+// Kat pastes under the post never vanish when an edit or a My posts tap replaces the preview that showed them. Only
+// the newest preview counts: a preview sent with clear_first_comment stores none, and an older one never comes back.
+// A reused note is labelled with the date of the preview it came from (kept when it already has a label).
+func (s *NotifyScheduled) earlierDraftPreview(ctx context.Context, memberID, draftID string, now time.Time, firstComment, note string, clearFirstComment bool) (string, string) {
 	notices, err := s.reviews.ListNotices(ctx, memberID, now.Add(-reviewDomain.FeedbackWindow))
 	if err != nil {
 		logger.FromContext(ctx).WithError(err).Info("telegram_list_previews_failed")
 		return firstComment, note
 	}
-	for _, older := range notices {
+	for _, older := range notices { // newest first
 		if older.DraftID != draftID || older.ScheduleID != "" {
 			continue
 		}
-		if firstComment == "" {
+		if firstComment == "" && !clearFirstComment {
 			firstComment = older.FirstComment
 		}
-		if note == "" {
+		if note == "" && older.Note != "" {
 			note = older.Note
+			if !strings.HasPrefix(note, earlierNotePrefix) {
+				note = earlierNotePrefix + older.CreatedAt.UTC().Format("Jan 2") + ") " + note
+			}
 		}
+		break
 	}
 	return firstComment, note
 }

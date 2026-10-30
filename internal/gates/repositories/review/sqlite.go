@@ -176,7 +176,10 @@ func (r *SQLiteRepository) CreateEditRequest(ctx context.Context, e reviewDomain
 }
 
 func (r *SQLiteRepository) ListEditRequests(ctx context.Context, memberID string, unappliedOnly bool) ([]reviewDomain.EditRequest, error) {
-	query := `SELECT ` + editColumns + ` FROM draft_edit_requests WHERE member_id=?`
+	// Each request carries the first comment of its draft's newest draft preview: the one a new preview shows again.
+	query := `SELECT ` + editColumns + `,COALESCE((SELECT n.first_comment FROM scheduled_post_notices n
+		WHERE n.member_id=e.member_id AND n.draft_id=e.draft_id AND n.schedule_id='' ORDER BY n.created_at DESC LIMIT 1),'')
+		FROM draft_edit_requests e WHERE member_id=?`
 	if unappliedOnly {
 		query += ` AND applied_at IS NULL`
 	}
@@ -188,7 +191,7 @@ func (r *SQLiteRepository) ListEditRequests(ctx context.Context, memberID string
 	defer rows.Close()
 	out := make([]reviewDomain.EditRequest, 0)
 	for rows.Next() {
-		e, err := scanEditRequest(rows)
+		e, err := scanEditRequest(rows, true)
 		if err != nil {
 			return nil, err
 		}
@@ -201,12 +204,12 @@ func (r *SQLiteRepository) ListEditRequests(ctx context.Context, memberID string
 
 func (r *SQLiteRepository) MarkEditApplied(ctx context.Context, memberID, id string, at time.Time) (reviewDomain.EditRequest, error) {
 	edit, err := scanEditRequest(r.db.QueryRowContext(ctx, `UPDATE draft_edit_requests SET applied_at=? WHERE member_id=? AND id=? AND applied_at IS NULL RETURNING `+editColumns,
-		formatTime(at), memberID, id))
+		formatTime(at), memberID, id), false)
 	if !errors.Is(err, reviewDomain.ErrNotFound) {
 		return edit, err
 	}
 
-	if _, lookupErr := scanEditRequest(r.db.QueryRowContext(ctx, `SELECT `+editColumns+` FROM draft_edit_requests WHERE member_id=? AND id=?`, memberID, id)); lookupErr == nil {
+	if _, lookupErr := scanEditRequest(r.db.QueryRowContext(ctx, `SELECT `+editColumns+` FROM draft_edit_requests WHERE member_id=? AND id=?`, memberID, id), false); lookupErr == nil {
 		return reviewDomain.EditRequest{}, reviewDomain.ErrEditApplied
 	}
 
@@ -397,10 +400,14 @@ func scanSuggestion(row scanner) (reviewDomain.Suggestion, error) {
 	return s, err
 }
 
-func scanEditRequest(row scanner) (reviewDomain.EditRequest, error) {
+func scanEditRequest(row scanner, withFirstComment bool) (reviewDomain.EditRequest, error) {
 	var e reviewDomain.EditRequest
 	var createdAt, appliedAt string
-	err := row.Scan(&e.ID, &e.MemberID, &e.DraftID, &e.NoticeID, &e.Text, &e.Source, &createdAt, &appliedAt)
+	dest := []any{&e.ID, &e.MemberID, &e.DraftID, &e.NoticeID, &e.Text, &e.Source, &createdAt, &appliedAt}
+	if withFirstComment {
+		dest = append(dest, &e.FirstComment)
+	}
+	err := row.Scan(dest...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return reviewDomain.EditRequest{}, reviewDomain.ErrNotFound
 	}

@@ -67,9 +67,10 @@ type mcpNotifyScheduledInput struct {
 }
 
 type mcpNotifyDraftInput struct {
-	DraftID      string `json:"draft_id" jsonschema:"Unscheduled, unpublished draft"`
-	Note         string `json:"note,omitempty" jsonschema:"Plain-text note shown above the preview (max 1000 characters), e.g. sources"`
-	FirstComment string `json:"first_comment,omitempty" jsonschema:"Optional text the member pastes as the first comment after publishing (links allowed: sources, booking page, job board; max 1000 characters, a Copy button up to 256). Shown after the post, not stored."`
+	DraftID           string `json:"draft_id" jsonschema:"Unscheduled, unpublished draft"`
+	Note              string `json:"note,omitempty" jsonschema:"Plain-text note shown above the preview (max 1000 characters), e.g. sources"`
+	FirstComment      string `json:"first_comment,omitempty" jsonschema:"Optional text the member pastes as the first comment after publishing (links allowed: sources, booking page, job board; max 1000 characters, a Copy button up to 256). Stored with the preview; it replaces the earlier one. Empty: the draft's earlier first comment is shown again."`
+	ClearFirstComment bool   `json:"clear_first_comment,omitempty" jsonschema:"true: send the preview without a first comment and remove the stored one, so later previews do not show it again. Do not combine with first_comment."`
 }
 
 type mcpNotice struct {
@@ -145,6 +146,8 @@ type mcpEditRequest struct {
 	Source    string `json:"source"`
 	CreatedAt string `json:"createdAt"`
 	AppliedAt string `json:"appliedAt,omitempty"`
+	// FirstComment is the draft's current first comment (its newest preview's), so an edit can change or clear it.
+	FirstComment string `json:"firstComment,omitempty"`
 }
 
 type mcpEditRequestList struct {
@@ -299,7 +302,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			if s.notifyScheduledStory == nil {
 				return nil, mcpNotice{}, errors.New("the Bloomary Telegram bot is not configured")
 			}
-			notice, err := s.notifyScheduledStory.NotifyDraft(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note, input.FirstComment)
+			notice, err := s.notifyScheduledStory.NotifyDraft(ctx, memberID, draftDomain.NormalizeID(input.DraftID), input.Note, input.FirstComment, input.ClearFirstComment)
 			if err != nil {
 				return nil, mcpNotice{}, err
 			}
@@ -376,7 +379,7 @@ func toMCPFeedback(feedback reviewDomain.Feedback) mcpFeedback {
 }
 
 func toMCPEditRequest(e reviewDomain.EditRequest) mcpEditRequest {
-	out := mcpEditRequest{EditID: e.ID, DraftID: e.DraftID, NoticeID: e.NoticeID, Text: e.Text, Source: e.Source, CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339)}
+	out := mcpEditRequest{EditID: e.ID, DraftID: e.DraftID, NoticeID: e.NoticeID, Text: e.Text, Source: e.Source, CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339), FirstComment: e.FirstComment}
 	if e.AppliedAt != nil {
 		out.AppliedAt = e.AppliedAt.UTC().Format(time.RFC3339)
 	}

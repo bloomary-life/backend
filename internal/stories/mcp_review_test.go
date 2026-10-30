@@ -81,7 +81,7 @@ func TestNotifyDraftSendsPreviewWithDiscardAndNoTime(t *testing.T) {
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
-	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "", "")
+	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "", "", false)
 
 	require.NoError(t, err)
 }

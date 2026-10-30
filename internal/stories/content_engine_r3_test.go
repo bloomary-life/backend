@@ -40,6 +40,37 @@ func TestDraftLinkRuleBlocksNetDomainsButNotSentencesOrTechNames(t *testing.T) {
 		{"I lived in Berlin.De facto, I worked remotely", false},
 		{"Version 2.0.app ships today", false},
 		{"e.g. this, i.e. that", false},
+		// r4: any letter case, multi-label names, e-mail domains, short links, query strings, dot look-alikes.
+		{"Read Kat.Substack.Com today", true},
+		{"Write to kat@Gmail.Com today", true},
+		{"Watch Youtu.Be", true},
+		{"Watch Youtu.Be sure to", true},
+		{"Book at Kat.Net", true},
+		{"Kat.Net is my site", true},
+		{"see lumen.Observer?ref=x", true},
+		{"Book at Lumen.Observer.", true},
+		{"Book at Lumen.Observer", true},
+		{"Book at Lumen.Observer/call", true},
+		{"Book at kat.net", true},
+		{"Book at LUMEN.OBSERVER", true},
+		{"Book at lumen\u3002observer", true},
+		{"Book at lumen\uFF61observer", true},
+		{"Book at lumen\uFF0Eobserver", true},
+		{"Book at lumen\u00B7observer", true},
+		{"Book at lumen\u2024observer", true},
+		{"Book at Cyprus.It/call", true},
+		{"Book at Cyprus.It.", true},
+		{"Write to kat@Cyprus.It was fine", true},
+		{"Read Kat.Cyprus.It was fine", true},
+		{"Cyprus.IT was fine", true},
+		{"Microsoft.net and ASP.NET Core", false},
+		{"microsoft.NET, asp.net and Socket.IO", false},
+		{"ASP.NET VB.NET", false},
+		{"I use Node.js and Socket.io daily", false},
+		{"Cyprus.It was hard", false},
+		{"It ends here.So what", false},
+		{"I moved to Cyprus.In 2020 it was cheap", false},
+		{"Release 2.0.app is out", false},
 	} {
 		err := validateMCPDraft("draft-1", tc.body)
 		if tc.blocked {
@@ -73,7 +104,7 @@ func TestLaterDraftPreviewKeepsTheFirstCommentAndNote(t *testing.T) {
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
-	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "Edited: shorter", "")
+	_, err = story.NotifyDraft(context.Background(), "member-1", "draft-1", "Edited: shorter", "", false)
 
 	require.NoError(t, err)
 }
@@ -85,10 +116,11 @@ func TestMyPostsPreviewWorksAgainAfterItWasReplaced(t *testing.T) {
 	f.drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Body: "Proof beats adjectives.", Status: "draft"}, nil)
 	f.reviews.EXPECT().CountNoticesSince(mock.Anything, "member-1", mock.Anything, true).Return(0, nil)
 	f.reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return([]reviewDomain.Notice{
-		{ID: "n-2", DraftID: "draft-1", Status: reviewDomain.NoticeSent, MessageID: 30, Note: "Sources: your note", FirstComment: "Book: https://lumen.observer"},
+		{ID: "n-2", DraftID: "draft-1", Status: reviewDomain.NoticeSent, MessageID: 30, Note: "Sources: your note", FirstComment: "Book: https://lumen.observer",
+			CreatedAt: time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC)},
 	}, nil)
 	f.reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool {
-		return n.Requested && n.FirstComment == "Book: https://lumen.observer" && n.Note == "Sources: your note"
+		return n.Requested && n.FirstComment == "Book: https://lumen.observer" && n.Note == "(from the preview of Oct 30) Sources: your note"
 	})).Return(nil)
 	f.notifier.EXPECT().Notify(mock.Anything, "member-1", mock.Anything, (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 31}, nil)
 	f.reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(31), int64(0)).Return(nil)

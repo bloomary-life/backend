@@ -37,24 +37,58 @@ const draftLinkTLDs = "com|org|io|ai|dev|app|co|eu|uk|cy|me|ly|gl|gle|gg|gy|in|t
 	"tv|fm|sh|cc|ws|im|vc|gd|tt|biz|blog|news|online|store|shop|club|work|jobs|careers|email|agency|studio|space|website|live|world|" +
 	"today|one|pro|net"
 
-// allowedTechNames look like domains but are product or library names.
-var allowedTechNames = strings.NewReplacer("socket.io", "socket io", "Socket.io", "Socket io", "Socket.IO", "Socket IO",
-	"ASP.NET", "ASP NET", "ADO.NET", "ADO NET", "VB.NET", "VB NET", "Microsoft.NET", "Microsoft NET", "Microsoft.net", "Microsoft net")
+// allowedTechNames look like domains but are product or library names, in any letter case ("ASP.NET",
+// "Microsoft.net/Java", "socket.io"). Their dot becomes a space before the domain check.
+var allowedTechNames = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}.@/-])(socket\.io|(?:asp|ado|vb|microsoft)\.net)($|[^\p{L}\p{N}.-])`)
 
-// hasDraftLink reports whether a post contains a link. A capitalised word right after a full stop with no space
-// ("Cyprus.It was hard", "here.So what") is a new sentence, not a TLD, unless a path follows it.
+// dotLookalikes are full-stop look-alikes that NFKC leaves alone (U+3002 "。", which U+FF61 and U+FE12 fold to, and
+// others); they count as a dot in a domain.
+var dotLookalikes = strings.NewReplacer("\u3002", ".", "\u2E3C", ".", "\u06D4", ".", "\u0701", ".", "\u0702", ".",
+	"\uA4F8", ".", "\uA60E", ".", "\u00B7", ".", "\u2027", ".", "\u2219", ".", "\u22C5", ".", "\u2E31", ".", "\u30FB", ".")
+
+// sentenceTLDs are TLDs that are also short words that start a sentence ("Cyprus.It was", "here.So what",
+// "Berlin.De facto"). Only these may be read as a new sentence; "Kat.Net is", "Youtu.Be sure" are links.
+var sentenceTLDs = map[string]bool{"it": true, "so": true, "in": true, "to": true, "no": true, "at": true, "us": true, "de": true, "one": true, "today": true}
+
+// hasDraftLink reports whether a post contains a link: a scheme or www., or a domain with a known TLD in any letter
+// case. One exception reads a match as two sentences: a single word, a full stop, then a capitalised sentence word
+// from sentenceTLDs, a space and a lowercase letter or digit ("I moved to Cyprus.It was hard"). A multi-label name
+// (Kat.Substack.Com), an e-mail domain (kat@Gmail.Com), a path, a query or any other ending is a link.
 func hasDraftLink(body string) bool {
-	text := allowedTechNames.Replace(norm.NFKC.String(body))
+	text := dotLookalikes.Replace(norm.NFKC.String(body))
+	for i := 0; i < 3; i++ { // adjacent names share a boundary character, so replace until stable
+		next := allowedTechNames.ReplaceAllStringFunc(text, func(m string) string { return strings.Replace(m, ".", " ", 1) })
+		if next == text {
+			break
+		}
+		text = next
+	}
 	if draftSchemePattern.MatchString(text) {
 		return true
 	}
 	for _, m := range draftDomainPattern.FindAllStringSubmatchIndex(text, -1) {
-		tld, after := text[m[4]:m[5]], text[m[6]:m[7]]
-		if !sentenceStart(tld) || after == "/" {
+		if !twoSentences(text, m) {
 			return true
 		}
 	}
 	return false
+}
+
+// twoSentences applies the sentence exception to one draftDomainPattern match (indexes from FindAllStringSubmatchIndex).
+func twoSentences(text string, m []int) bool {
+	name, tld := text[m[0]:m[4]-1], text[m[4]:m[5]]
+	if strings.Contains(name, ".") || !sentenceStart(tld) || !sentenceTLDs[strings.ToLower(tld)] {
+		return false
+	}
+	if before, _ := utf8.DecodeLastRuneInString(text[:m[0]]); before == '@' {
+		return false
+	}
+	space, size := utf8.DecodeRuneInString(text[m[6]:])
+	if m[6] == m[7] || !unicode.IsSpace(space) {
+		return false
+	}
+	next, _ := utf8.DecodeRuneInString(text[m[6]+size:])
+	return unicode.IsLower(next) || unicode.IsDigit(next)
 }
 
 // sentenceStart is true for a capitalised word ("It", "So"), the way a sentence starts; "COM" and "com" are not.

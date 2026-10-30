@@ -174,3 +174,27 @@ func TestDraftPreviewKeepsItsFirstComment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Book: https://lumen.observer", notice.FirstComment)
 }
+
+func TestEditRequestsCarryTheDraftsNewestFirstComment(t *testing.T) {
+	// Verifies: BE-019
+	repo := newRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for _, n := range []reviewDomain.Notice{
+		{ID: "n-old", FirstComment: "Book: https://lumen.observer/call/katerina", CreatedAt: now.Add(-2 * time.Hour)},
+		{ID: "n-new", FirstComment: "Sources: https://www.anthropic.com/news/x", CreatedAt: now.Add(-time.Hour)},
+		{ID: "n-job", FirstComment: "scheduled", ScheduleID: "job-1", CreatedAt: now},
+	} {
+		n.MemberID, n.DraftID, n.ProposedText, n.Status = "member-1", "draft-1", "Post", reviewDomain.NoticeSent
+		require.NoError(t, repo.CreateNotice(ctx, n))
+	}
+	require.NoError(t, repo.CreateEditRequest(ctx, reviewDomain.EditRequest{ID: "e-1", MemberID: "member-1", DraftID: "draft-1", NoticeID: "n-old", Text: "drop the booking link", Source: "text", CreatedAt: now}))
+	require.NoError(t, repo.CreateEditRequest(ctx, reviewDomain.EditRequest{ID: "e-2", MemberID: "member-1", DraftID: "draft-2", NoticeID: "n-x", Text: "shorter", Source: "text", CreatedAt: now.Add(time.Second)}))
+
+	open, err := repo.ListEditRequests(ctx, "member-1", true)
+
+	require.NoError(t, err)
+	require.Len(t, open, 2)
+	require.Equal(t, "Sources: https://www.anthropic.com/news/x", open[0].FirstComment)
+	require.Empty(t, open[1].FirstComment)
+}

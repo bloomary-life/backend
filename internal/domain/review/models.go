@@ -85,6 +85,8 @@ type EditRequest struct {
 	NoticeID  string
 	Text      string
 	Source    string
+	// FirstComment is the first comment of the draft's newest draft preview (read only, from the notices).
+	FirstComment string
 }
 
 const (
