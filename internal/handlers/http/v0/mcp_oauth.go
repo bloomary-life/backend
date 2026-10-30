@@ -423,8 +423,9 @@ func validMCPRedirectURI(raw string) bool {
 	if u.Scheme != "http" {
 		return false
 	}
+	// No [::1]: CSP form-action cannot name an IPv6 literal, so the browser would block the redirect after Allow.
 	host := strings.ToLower(u.Hostname())
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	return host == "localhost" || host == "127.0.0.1"
 }
 
 func mcpScopeDescription(scopes []string) string {

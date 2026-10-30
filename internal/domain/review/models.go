@@ -12,7 +12,7 @@ var (
 	ErrNotScheduled  = errors.New("schedule the draft with schedule_draft before calling notify_scheduled")
 	ErrNotLinked     = errors.New("the member has not linked Telegram yet (Bloomary → Settings → Telegram)")
 	ErrUnknownKind   = errors.New(`kind must be "comment"`)
-	ErrInvalidTarget = errors.New("target_url must be an http or https URL")
+	ErrInvalidTarget = errors.New("target_url must be an https URL of a LinkedIn post (linkedin.com)")
 	ErrEditApplied   = errors.New("this edit request is already applied")
 )
 

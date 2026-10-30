@@ -3,6 +3,7 @@ package stories
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestScheduleAllowsTrialMember(t *testing.T) {
 	access.EXPECT().Resolve(mock.Anything, "member-1", mock.Anything).
 		Return(entitlementDomain.Entitlement{Tier: entitlementDomain.TierTrial}, nil)
 	drafts := draftMocks.NewMockRepository(t)
-	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1"}, nil)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Status: "draft"}, nil)
 	accounts := accountMocks.NewMockRepository(t)
 	accounts.EXPECT().ActiveByMemberID(mock.Anything, "member-1").
 		Return(accountDomain.TokenPair{AccessToken: "token", ExpiresAt: time.Now().Add(60 * 24 * time.Hour)}, nil)
@@ -55,4 +56,23 @@ func TestScheduleRetryFailsJobOnDailyLimit(t *testing.T) {
 
 	cause := fmt.Errorf("%w: %s", dailyDomain.ErrDailyLimitExceeded, "member-1")
 	story.retry(context.Background(), scheduleDomain.Post{ID: "job-1", MemberID: "member-1"}, cause)
+}
+
+func TestScheduleRefusesPublishedDraft(t *testing.T) {
+	// Verifies: BE-013
+	access := entitlementMocks.NewMockAccessStory(t)
+	access.EXPECT().Resolve(mock.Anything, "member-1", mock.Anything).
+		Return(entitlementDomain.Entitlement{Tier: entitlementDomain.TierPro}, nil)
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, "member-1", "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Status: "published"}, nil)
+	story, err := NewLinkedInScheduleStory(scheduleMocks.NewMockRepository(t), accountMocks.NewMockRepository(t), drafts, draftMocks.NewMockObjectStore(t), access, linkedinMocks.NewMockGate(t), linkedinMocks.NewMockLinkedInPostStory(t), time.Minute, 31)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = story.Schedule(context.Background(), scheduleDomain.CreateInput{MemberID: "member-1", DraftID: "draft-1", ScheduledAt: time.Now().Add(time.Hour)})
+
+	if err == nil || !strings.Contains(err.Error(), "unpublished") {
+		t.Fatalf("published draft must not be scheduled again, got %v", err)
+	}
 }

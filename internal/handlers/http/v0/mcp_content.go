@@ -64,7 +64,7 @@ type mcpNotice struct {
 
 type mcpSendSuggestionInput struct {
 	Kind      string `json:"kind" jsonschema:"Only \"comment\" for now"`
-	TargetURL string `json:"target_url" jsonschema:"URL of the post to comment on"`
+	TargetURL string `json:"target_url" jsonschema:"https URL of the LinkedIn post to comment on (linkedin.com)"`
 	Text      string `json:"text" jsonschema:"The comment; up to 256 characters gets a Copy button"`
 	Context   string `json:"context,omitempty" jsonschema:"One line on why this post and comment"`
 }
@@ -83,7 +83,7 @@ type mcpPostFeedback struct {
 	DraftID      string `json:"draftId"`
 	Status       string `json:"status"`
 	Note         string `json:"note,omitempty"`
-	PublishAt    string `json:"publishAt"`
+	PublishAt    string `json:"publishAt,omitempty"`
 	NotifiedAt   string `json:"notifiedAt"`
 	SkippedAt    string `json:"skippedAt,omitempty"`
 	ProposedText string `json:"proposedText"`
@@ -224,7 +224,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			return nil, mcpNotice{NoticeID: notice.ID, DraftID: notice.DraftID, ScheduleID: notice.ScheduleID,
 				PublishAt: notice.ScheduledAt.UTC().Format(time.RFC3339)}, nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("list_edit_requests", "List the member's replies (text or transcribed voice) to post previews in Telegram: how to change that draft, oldest first. Rewrite the draft, call update_draft and notify_scheduled, then mark_edit_applied.", "drafts:write"),
+	mcp.AddTool(server, mcpOAuthTool("list_edit_requests", "List the member's replies (text or transcribed voice) to post previews in Telegram: how to change that draft, oldest first. Rewrite the draft, call update_draft, then notify_scheduled (scheduled post) or notify_draft (unscheduled draft), then mark_edit_applied.", "drafts:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpListEditRequestsInput) (*mcp.CallToolResult, mcpEditRequestList, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {
@@ -312,8 +312,11 @@ func toMCPFeedback(feedback reviewDomain.Feedback) mcpFeedback {
 	out := mcpFeedback{Posts: make([]mcpPostFeedback, 0, len(feedback.Posts)), Suggestions: make([]mcpSuggestionFeedback, 0, len(feedback.Suggestions))}
 	for _, p := range feedback.Posts {
 		item := mcpPostFeedback{NoticeID: p.ID, DraftID: p.DraftID, Status: p.PostStatus, Note: p.Note,
-			PublishAt: p.ScheduledAt.UTC().Format(time.RFC3339), NotifiedAt: p.CreatedAt.UTC().Format(time.RFC3339),
+			NotifiedAt:   p.CreatedAt.UTC().Format(time.RFC3339),
 			ProposedText: p.ProposedText, FinalText: p.FinalText, Diff: p.Diff, Edited: p.Edited}
+		if p.ScheduleID != "" {
+			item.PublishAt = p.ScheduledAt.UTC().Format(time.RFC3339)
+		}
 		if p.SkippedAt != nil {
 			item.SkippedAt = p.SkippedAt.UTC().Format(time.RFC3339)
 		}

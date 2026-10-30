@@ -88,7 +88,7 @@ func (s *service) newMCPHandler() http.Handler {
 			}
 			return nil, toMCPDraft(draft), nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("create_draft", "Create a Bloomary draft. Reuse draft_id when retrying.", "drafts:write"),
+	mcp.AddTool(server, mcpOAuthTool("create_draft", "Create a Bloomary draft. Reuse draft_id when retrying. Post text must not contain links (URLs are refused).", "drafts:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSaveDraftInput) (*mcp.CallToolResult, mcpDraft, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {
@@ -101,7 +101,7 @@ func (s *service) newMCPHandler() http.Handler {
 			draft, err := s.createMCPDraftStory.Create(ctx, memberID, input.DraftID, input.Body)
 			return nil, toMCPDraft(draft), err
 		})
-	mcp.AddTool(server, mcpOAuthTool("update_draft", "Replace the text of an existing Bloomary draft.", "drafts:write"),
+	mcp.AddTool(server, mcpOAuthTool("update_draft", "Replace the text of an existing Bloomary draft. Post text must not contain links (URLs are refused).", "drafts:write"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSaveDraftInput) (*mcp.CallToolResult, mcpDraft, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "drafts:write")
 			if err != nil {

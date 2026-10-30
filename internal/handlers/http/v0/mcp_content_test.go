@@ -284,3 +284,47 @@ func TestMCPNotifyDraftSendsUnscheduledPreviewWithoutSkip(t *testing.T) {
 	require.Equal(t, "draft-1", out.DraftID)
 	require.Empty(t, out.ScheduleID)
 }
+
+func TestMCPCreateAndUpdateDraftRejectLinks(t *testing.T) {
+	// Verifies: BE-020
+	create, err := stories.NewCreateMCPDraft(paidAccess(t), draftMocks.NewMockRepository(t))
+	require.NoError(t, err)
+	update, err := stories.NewUpdateMCPDraft(paidAccess(t), draftMocks.NewMockRepository(t))
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{createMCPDraftStory: create, updateMCPDraftStory: update})
+
+	for _, body := range []string{"Book a call: https://lumen.observer/call/katerina", "See www.example.com", "Book at lumen.observer/call/katerina"} {
+		for _, tool := range []string{"create_draft", "update_draft"} {
+			result := callMCPTool(t, svc, []string{"drafts:write"}, tool, map[string]any{"draft_id": "draft-1", "body": body})
+			require.True(t, result.Result.IsError, tool+": "+body)
+			require.Contains(t, result.Result.Content[0].Text, "links are not allowed", tool)
+		}
+	}
+}
+
+func TestMCPCreateDraftAllowsTextWithoutLinks(t *testing.T) {
+	// Verifies: BE-020
+	body := "I moved from Node.js/Go to Rust. Message me if you want one."
+	repository := draftMocks.NewMockRepository(t)
+	repository.EXPECT().CreateIfAbsent(mock.Anything, "member-1", "draft-1", body, mock.Anything, mock.Anything).
+		Return(draftDomain.Draft{DraftID: "draft-1", Body: body, Status: "draft"}, true, nil)
+	create, err := stories.NewCreateMCPDraft(paidAccess(t), repository)
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{createMCPDraftStory: create})
+
+	result := callMCPTool(t, svc, []string{"drafts:write"}, "create_draft", map[string]any{"draft_id": "draft-1", "body": body})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+}
+
+func TestMCPSendSuggestionAcceptsLinkedInPostsOnly(t *testing.T) {
+	// Verifies: BE-012
+	send, err := stories.NewSendSuggestion(paidAccess(t), reviewMocks.NewMockRepository(t), telegramMocks.NewMockNotifier(t))
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{sendSuggestionStory: send})
+
+	for _, target := range []string{"https://evil.example/v?d=secret", "http://www.linkedin.com/posts/x"} {
+		result := callMCPTool(t, svc, []string{"insights:write"}, "send_suggestion", map[string]any{"kind": "comment", "target_url": target, "text": "Short comment"})
+		require.True(t, result.Result.IsError, target)
+	}
+}

@@ -236,7 +236,7 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 		return reviewDomain.Suggestion{}, reviewDomain.ErrUnknownKind
 	}
 	target, err := url.Parse(strings.TrimSpace(in.TargetURL))
-	if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Host == "" || target.User != nil {
+	if err != nil || target.Scheme != "https" || (target.Host != "www.linkedin.com" && target.Host != "linkedin.com") || target.User != nil {
 		return reviewDomain.Suggestion{}, reviewDomain.ErrInvalidTarget
 	}
 	text, postContext := strings.TrimSpace(in.Text), strings.TrimSpace(in.Context)

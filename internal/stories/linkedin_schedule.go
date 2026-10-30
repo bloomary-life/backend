@@ -63,8 +63,12 @@ func (s *linkedInScheduleStory) Schedule(ctx context.Context, in scheduleDomain.
 	if in.ScheduledAt.Before(now.Add(scheduleMinAhead)) || in.ScheduledAt.After(now.Add(s.maxAhead)) {
 		return scheduleDomain.Post{}, fmt.Errorf("scheduled time must be between 5 minutes and %d days from now", s.maxAheadDays)
 	}
-	if _, err := s.drafts.ByID(ctx, in.MemberID, in.DraftID); err != nil {
+	draft, err := s.drafts.ByID(ctx, in.MemberID, in.DraftID)
+	if err != nil {
 		return scheduleDomain.Post{}, fmt.Errorf("draft not found")
+	}
+	if draft.Status != "draft" {
+		return scheduleDomain.Post{}, fmt.Errorf("only unpublished drafts can be scheduled")
 	}
 	token, err := s.accounts.ActiveByMemberID(ctx, in.MemberID)
 	if err != nil || token.AccessToken == "" {
