@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -24,8 +25,10 @@ import (
 	paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
 	recaptchaDomain "bloomary-api/internal/domain/recaptcha"
 	resendDomain "bloomary-api/internal/domain/resend"
+	telegramDomain "bloomary-api/internal/domain/telegram"
 	apnsGate "bloomary-api/internal/gates/apns"
 	appleiapGate "bloomary-api/internal/gates/appleiap"
+	deepgramGate "bloomary-api/internal/gates/deepgram"
 	linkedinGate "bloomary-api/internal/gates/linkedin"
 	mcpSignerGate "bloomary-api/internal/gates/mcp"
 	objectstoreGate "bloomary-api/internal/gates/objectstore"
@@ -37,6 +40,7 @@ import (
 	quotaRepo "bloomary-api/internal/gates/repositories/quota"
 	ratelimit "bloomary-api/internal/gates/repositories/ratelimit"
 	resendGate "bloomary-api/internal/gates/resend"
+	telegramGate "bloomary-api/internal/gates/telegram"
 	v0 "bloomary-api/internal/handlers/http/v0"
 	"bloomary-api/internal/metrics"
 
@@ -48,6 +52,9 @@ import (
 )
 
 const linkedInCLICallbackPath = "/api/linkedin/callback"
+
+// Telegram allows 1-256 characters A-Z, a-z, 0-9, _ and - in a webhook secret_token.
+var telegramWebhookSecretPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}$`)
 
 var appVersion = "dev"
 
@@ -165,6 +172,17 @@ func main() {
 	if err != nil {
 		appLogger.Fatal(err)
 	}
+	// Voice transcription and file downloads take longer than the default outbound timeout.
+	newSlowClient := func(name string) (httpclient.Client, error) {
+		return newHTTPClient(
+			ctx, config, httpclient.WithMetrics(name, outboundDuration, outboundInFlight, outboundCounter),
+			httpclient.WithRequestTimeout(2*time.Minute),
+		)
+	}
+	userBot, transcriber, err := newUserBotGates(config, newSlowClient)
+	if err != nil {
+		appLogger.Fatal(err)
+	}
 
 	handlerCfg := handlerConfig(config, productCounters)
 	handlerCfg.WebSessionPath = config.DatabasePath + ".web-sessions.json"
@@ -184,7 +202,7 @@ func main() {
 	handlerCfg.Notifications = newNotifications(config, newTrackedClient, appLogger)
 	appStories, err := newApplicationStories(
 		store, draftImageStore, linkedInGate, resendGate, recaptchaGate,
-		appleVerifier, appleVerifier, paddleAPI, quota, flows, handlerCfg,
+		appleVerifier, appleVerifier, paddleAPI, quota, flows, userBot, transcriber, handlerCfg,
 	)
 	if err != nil {
 		appLogger.Fatal(fmt.Errorf("init application stories: %w", err))
@@ -351,6 +369,8 @@ func newApplicationStories(
 	paddlePortal paddleDomain.PortalGate,
 	quota dailyDomain.QuotaConsumer,
 	flows accountDomain.OAuthStateStore,
+	userBot telegramDomain.Gate,
+	transcriber telegramDomain.Transcriber,
 	config v0.Config,
 ) (v0.ApplicationStories, error) {
 	access, err := stories.NewEntitlementAccessStory(store.accountRepo, store.paddleRepo, store.appleEntitlementRepo, store.trialRepo, store.dailyRepo)
@@ -453,11 +473,25 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
-	accountDeletion, err := stories.NewAccountDeletionStory(store.dailyRepo, store.draftRepo, store.accountRepo, draftImages)
+	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo}
+	accountDeletion, err := stories.NewAccountDeletionStoryWithMemberData(store.dailyRepo, store.draftRepo, store.accountRepo, memberData, draftImages)
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
+	var telegramBot telegramDomain.BotStory
+	var telegramLink telegramDomain.LinkStory
+	if userBot != nil {
+		telegramLink, err = stories.NewTelegramLink(store.telegramLinkRepo, config.TelegramBotUsername)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+	}
 	return v0.ApplicationStories{
+		TelegramBot: telegramBot, TelegramLink: telegramLink,
 		LinkedInPost: post, Feedback: feedback, LinkedInAuth: linkedinAuth,
 		SyncDrafts: syncDrafts, ExportDrafts: exportDrafts, ListMCPDrafts: listMCPDrafts, GetMCPDraft: getMCPDraft,
 		CreateMCPDraft: createMCPDraft, UpdateMCPDraft: updateMCPDraft, DraftImages: draftImageStory,
@@ -466,6 +500,42 @@ func newApplicationStories(
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,
 		Access: access, ScheduledPost: schedule, MCPAuthorization: mcpAuthorization, MCPTokenVerifier: mcpTokenVerifier, MCPGrants: store.mcpOAuthState,
 	}, nil
+}
+
+// newUserBotGates builds the user Telegram bot and its Deepgram transcriber.
+// Both stay nil while BLOOMARY_USER_BOT_TOKEN is empty; the transcriber also needs DEEPGRAM_API_KEY.
+func newUserBotGates(
+	config platform.Config, newClient func(string) (httpclient.Client, error),
+) (telegramDomain.Gate, telegramDomain.Transcriber, error) {
+	if strings.TrimSpace(config.UserBotToken) == "" {
+		return nil, nil, nil
+	}
+	if !telegramWebhookSecretPattern.MatchString(config.UserBotWebhookSecret) {
+		return nil, nil, errors.New("BLOOMARY_USER_BOT_WEBHOOK_SECRET must be 1-256 characters of A-Z, a-z, 0-9, _ or -")
+	}
+	if strings.TrimSpace(config.UserBotUsername) == "" {
+		return nil, nil, errors.New("BLOOMARY_USER_BOT_USERNAME is required with BLOOMARY_USER_BOT_TOKEN")
+	}
+	telegramClient, err := newClient("telegram")
+	if err != nil {
+		return nil, nil, fmt.Errorf("init telegram http client: %w", err)
+	}
+	bot, err := telegramGate.New(telegramClient, telegramGate.DefaultBaseURL, config.UserBotToken)
+	if err != nil {
+		return nil, nil, err
+	}
+	if strings.TrimSpace(config.DeepgramAPIKey) == "" {
+		return bot, nil, nil
+	}
+	deepgramClient, err := newClient("deepgram")
+	if err != nil {
+		return nil, nil, fmt.Errorf("init deepgram http client: %w", err)
+	}
+	transcriber, err := deepgramGate.New(deepgramClient, deepgramGate.DefaultBaseURL, config.DeepgramAPIKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return bot, transcriber, nil
 }
 
 func newMuxWithLinkedInConfig(
@@ -600,5 +670,7 @@ func handlerConfig(config platform.Config, productCounters ...metrics.ProductCou
 		WebAllowedOrigin:       config.WebAllowedOrigin,
 		ScheduleMaxDays:        int(config.ScheduleMaxDays),
 		ProductCounters:        counters,
+		TelegramWebhookSecret:  config.UserBotWebhookSecret,
+		TelegramBotUsername:    config.UserBotUsername,
 	}
 }

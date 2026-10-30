@@ -15,6 +15,8 @@ import (
 	accountMocks "bloomary-api/internal/mocks/domain/account"
 	dailyMocks "bloomary-api/internal/mocks/domain/daily"
 	draftMocks "bloomary-api/internal/mocks/domain/draft"
+	insightMocks "bloomary-api/internal/mocks/domain/insight"
+	telegramMocks "bloomary-api/internal/mocks/domain/telegram"
 	"bloomary-api/internal/platform/logger"
 )
 
@@ -52,6 +54,28 @@ func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_Success() {
 	dailyRepo.AssertExpectations(s.T())
 	draftRepo.AssertExpectations(s.T())
 	accountRepo.AssertExpectations(s.T())
+}
+
+func (s *AccountDeletionStorySuite) TestDeleteAccount_DeletesInsightsAndTelegramLink() {
+	// Verifies: BE-015
+	dailyRepo := new(dailyMocks.MockRepository)
+	draftRepo := new(draftMocks.MockRepository)
+	accountRepo := new(accountMocks.MockRepository)
+	insights := new(insightMocks.MockRepository)
+	links := new(telegramMocks.MockLinkRepository)
+
+	dailyRepo.On("DeleteByMemberID", s.Ctx, "member-123").Return(nil)
+	draftRepo.On("DeleteByMemberID", s.Ctx, "member-123").Return(nil)
+	accountRepo.On("Delete", s.Ctx, "member-123").Return(nil)
+	insights.On("DeleteByMemberID", s.Ctx, "member-123").Return(nil)
+	links.On("DeleteByMemberID", s.Ctx, "member-123").Return(nil)
+
+	story, err := NewAccountDeletionStoryWithMemberData(dailyRepo, draftRepo, accountRepo, []accountDomain.MemberDataDeleter{insights, links})
+	s.Require().NoError(err)
+
+	s.Require().NoError(story.DeleteAccount(s.Ctx, accountDomain.DeleteAccountInput{MemberID: "member-123"}))
+	insights.AssertExpectations(s.T())
+	links.AssertExpectations(s.T())
 }
 
 func (s *AccountDeletionStorySuite) TestDisconnectLinkedIn_EmptyMemberID() {

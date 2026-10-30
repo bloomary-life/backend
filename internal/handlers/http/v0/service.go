@@ -20,6 +20,7 @@ import (
 	notificationDomain "bloomary-api/internal/domain/notification"
 	paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
+	telegramDomain "bloomary-api/internal/domain/telegram"
 	"bloomary-api/internal/platform/logger"
 )
 
@@ -55,6 +56,8 @@ type Config struct {
 	MCPPreviousAccessUntil time.Time
 	MCPResourceURL         string
 	MCPIssuerURL           string
+	TelegramWebhookSecret  string
+	TelegramBotUsername    string
 }
 
 func DefaultConfig() Config {
@@ -96,6 +99,8 @@ type service struct {
 	flows                 accountDomain.OAuthStateStore
 	verifiedTokens        *linkedInTokenVerificationCache
 	scheduledPostStory    scheduledDomain.Story
+	telegramBotStory      telegramDomain.BotStory
+	telegramLinkStory     telegramDomain.LinkStory
 	mcpHandler            http.Handler
 }
 
@@ -145,6 +150,9 @@ type ApplicationStories struct {
 	MCPAuthorization   mcpDomain.AuthorizationStory
 	MCPTokenVerifier   mcpDomain.AccessTokenVerifier
 	MCPGrants          mcpDomain.GrantStore
+	// TelegramBot and TelegramLink stay nil when the user bot token is not configured.
+	TelegramBot  telegramDomain.BotStory
+	TelegramLink telegramDomain.LinkStory
 }
 
 func NewService(
@@ -217,6 +225,8 @@ func NewService(
 		flows:                 flows,
 		verifiedTokens:        cache,
 		scheduledPostStory:    appStories.ScheduledPost,
+		telegramBotStory:      appStories.TelegramBot,
+		telegramLinkStory:     appStories.TelegramLink,
 	}
 	if err := svc.webSessions.load(config.WebSessionPath); err != nil {
 		return nil, err
@@ -293,6 +303,8 @@ func (s *service) Mux(ctx context.Context) *http.ServeMux {
 	handle("/api/linkedin/cli/start", s.LinkedInCLIStart)
 	handle("/api/linkedin/callback", s.LinkedInCallback)
 	handle("/api/linkedin/cli/result", s.LinkedInCLIResult)
+	handle("/api/telegram/webhook", s.TelegramWebhook)
+	handle("/api/telegram/link", s.TelegramLink)
 	mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mcpHandler.ServeHTTP(w, r.WithContext(appLogger.ToContext(r.Context())))
 	}))

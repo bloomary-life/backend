@@ -16,6 +16,7 @@ type accountDeletionStory struct {
 	draftRepo   draftDomain.Repository
 	draftImages draftDomain.ObjectStore
 	accountRepo accountDomain.Repository
+	memberData  []accountDomain.MemberDataDeleter
 }
 
 // NewAccountDeletionStory creates a new AccountDeletionStory implementation.
@@ -23,6 +24,17 @@ func NewAccountDeletionStory(
 	dailyRepo dailyDomain.Repository,
 	draftRepo draftDomain.Repository,
 	accountRepo accountDomain.Repository,
+	draftImages ...draftDomain.ObjectStore,
+) (accountDomain.AccountDeletionStory, error) {
+	return NewAccountDeletionStoryWithMemberData(dailyRepo, draftRepo, accountRepo, nil, draftImages...)
+}
+
+// NewAccountDeletionStoryWithMemberData also deletes each feature's member data (insights, Telegram link, reviews).
+func NewAccountDeletionStoryWithMemberData(
+	dailyRepo dailyDomain.Repository,
+	draftRepo draftDomain.Repository,
+	accountRepo accountDomain.Repository,
+	memberData []accountDomain.MemberDataDeleter,
 	draftImages ...draftDomain.ObjectStore,
 ) (accountDomain.AccountDeletionStory, error) {
 	if dailyRepo == nil {
@@ -45,6 +57,7 @@ func NewAccountDeletionStory(
 		draftRepo:   draftRepo,
 		draftImages: imageStore,
 		accountRepo: accountRepo,
+		memberData:  memberData,
 	}, nil
 }
 
@@ -96,6 +109,12 @@ func (s *accountDeletionStory) deleteAllData(ctx context.Context, memberID strin
 
 	if err := s.draftRepo.DeleteByMemberID(ctx, memberID); err != nil {
 		return fmt.Errorf("delete drafts: %w", err)
+	}
+
+	for _, data := range s.memberData {
+		if err := data.DeleteByMemberID(ctx, memberID); err != nil {
+			return fmt.Errorf("delete member data: %w", err)
+		}
 	}
 
 	if err := s.accountRepo.Delete(ctx, memberID); err != nil {

@@ -15,6 +15,7 @@ import (
 	insightDomain "bloomary-api/internal/domain/insight"
 	paddleDomain "bloomary-api/internal/domain/paddle_entitlement"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
+	telegramDomain "bloomary-api/internal/domain/telegram"
 	trialDomain "bloomary-api/internal/domain/trial"
 	accountRepo "bloomary-api/internal/gates/repositories/account"
 	appleEntitlementRepo "bloomary-api/internal/gates/repositories/apple_entitlement"
@@ -24,6 +25,7 @@ import (
 	mcpOAuthRepo "bloomary-api/internal/gates/repositories/mcp_oauth"
 	paddleRepo "bloomary-api/internal/gates/repositories/paddle_entitlement"
 	scheduledRepo "bloomary-api/internal/gates/repositories/scheduledpost"
+	telegramRepo "bloomary-api/internal/gates/repositories/telegram"
 	trialRepo "bloomary-api/internal/gates/repositories/trial"
 
 	_ "modernc.org/sqlite"
@@ -40,6 +42,7 @@ type authStore struct {
 	trialRepo            trialDomain.Repository
 	scheduledPostRepo    scheduledDomain.Repository
 	insightRepo          insightDomain.Repository
+	telegramLinkRepo     telegramDomain.LinkRepository
 	mcpOAuthState        *mcpOAuthRepo.SQLiteStateStore
 }
 
@@ -135,11 +138,16 @@ func newAuthStoreWithBilling(path string, freeTierDays int, trialHMACSecret stri
 		_ = db.Close()
 		return nil, err
 	}
+	telegramLinks, err := telegramRepo.NewSQLiteRepository(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	store := &authStore{
 		db: db, accountRepo: accountRepo, dailyRepo: dailyRepo, draftRepo: draftRepo,
 		paddleRepo: paddleRepo, paddleBillingRepo: paddleRepo, appleEntitlementRepo: appleEntitlementRepo, trialRepo: trialRepo, scheduledPostRepo: scheduledPostRepo, mcpOAuthState: mcpOAuthState,
-		insightRepo: insights,
+		insightRepo: insights, telegramLinkRepo: telegramLinks,
 	}
 	return store, nil
 }

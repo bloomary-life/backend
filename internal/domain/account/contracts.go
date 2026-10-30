@@ -15,6 +15,11 @@ type OAuthStateStore interface {
 	ConsumeDone(state string) []byte
 }
 
+// MemberDataDeleter removes one feature's data of a member (insights, Telegram link, ...) on account deletion.
+type MemberDataDeleter interface {
+	DeleteByMemberID(ctx context.Context, memberID string) error
+}
+
 type Repository interface {
 	Insert(ctx context.Context, token Token, profile Profile) error
 	ByMemberID(ctx context.Context, memberID string) (Profile, error)

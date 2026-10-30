@@ -19,16 +19,19 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	if db == nil {
 		return nil, fmt.Errorf("insight sqlite repository: db is required")
 	}
+
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS member_insights (
 		id TEXT PRIMARY KEY, member_id TEXT NOT NULL, body TEXT NOT NULL, source TEXT NOT NULL,
 		created_at TEXT NOT NULL, used_at TEXT, draft_id TEXT)`)
 	if err != nil {
 		return nil, fmt.Errorf("create member_insights: %w", err)
 	}
+
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_member_insights_member_created ON member_insights(member_id, created_at)`)
 	if err != nil {
 		return nil, fmt.Errorf("index member_insights: %w", err)
 	}
+
 	return &SQLiteRepository{db: db}, nil
 }
 
@@ -38,6 +41,7 @@ func (r *SQLiteRepository) Create(ctx context.Context, in insightDomain.Insight)
 	if err != nil {
 		return fmt.Errorf("insert insight member_id=%q: %w", in.MemberID, err)
 	}
+
 	return nil
 }
 
@@ -46,10 +50,12 @@ func (r *SQLiteRepository) List(ctx context.Context, filter insightDomain.ListFi
 	if filter.UnusedOnly {
 		query += ` AND used_at IS NULL`
 	}
+
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = insightDomain.DefaultListLimit
 	}
+
 	rows, err := r.db.QueryContext(ctx, query+` ORDER BY created_at DESC LIMIT ?`,
 		filter.MemberID, filter.Since.UTC().Format(time.RFC3339Nano), limit)
 	if err != nil {
@@ -62,8 +68,10 @@ func (r *SQLiteRepository) List(ctx context.Context, filter insightDomain.ListFi
 		if err != nil {
 			return nil, err
 		}
+
 		out = append(out, in)
 	}
+
 	return out, rows.Err()
 }
 
@@ -74,6 +82,7 @@ func (r *SQLiteRepository) MarkUsed(ctx context.Context, memberID, insightID, dr
 	if errors.Is(err, sql.ErrNoRows) {
 		return insightDomain.Insight{}, insightDomain.ErrNotFound
 	}
+
 	return in, err
 }
 
@@ -84,6 +93,7 @@ func (r *SQLiteRepository) CountSince(ctx context.Context, memberID string, sour
 	if err != nil {
 		return 0, fmt.Errorf("count insights member_id=%q: %w", memberID, err)
 	}
+
 	return count, nil
 }
 
@@ -91,6 +101,7 @@ func (r *SQLiteRepository) DeleteByMemberID(ctx context.Context, memberID string
 	if _, err := r.db.ExecContext(ctx, `DELETE FROM member_insights WHERE member_id=?`, memberID); err != nil {
 		return fmt.Errorf("delete insights member_id=%q: %w", memberID, err)
 	}
+
 	return nil
 }
 
@@ -102,18 +113,22 @@ func scan(row scanner) (insightDomain.Insight, error) {
 	if err := row.Scan(&in.ID, &in.MemberID, &in.Text, &source, &createdAt, &usedAt, &in.DraftID); err != nil {
 		return insightDomain.Insight{}, err
 	}
+
 	in.Source = insightDomain.Source(source)
 	parsed, err := time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
 		return insightDomain.Insight{}, fmt.Errorf("parse insight created_at id=%q: %w", in.ID, err)
 	}
+
 	in.CreatedAt = parsed
 	if strings.TrimSpace(usedAt) != "" {
 		used, err := time.Parse(time.RFC3339Nano, usedAt)
 		if err != nil {
 			return insightDomain.Insight{}, fmt.Errorf("parse insight used_at id=%q: %w", in.ID, err)
 		}
+
 		in.UsedAt = &used
 	}
+
 	return in, nil
 }

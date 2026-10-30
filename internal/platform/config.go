@@ -74,6 +74,13 @@ type Config struct {
 	SentryRelease           string        `env:"SENTRY_RELEASE"`
 	SupportAllowedOrigin    string        `env:"SUPPORT_ALLOWED_ORIGIN" envDefault:"https://bloomary.life"`
 	WebAllowedOrigin        string        `env:"WEB_ALLOWED_ORIGIN" envDefault:"https://platform.bloomary.life"`
+
+	// The user-facing Telegram bot (insights, approvals, comment ideas) is off while the token is empty.
+	// It is not the ops-alert bot (BLOOMARY_BOT_TOKEN).
+	UserBotToken         string `env:"BLOOMARY_USER_BOT_TOKEN"`
+	UserBotWebhookSecret string `env:"BLOOMARY_USER_BOT_WEBHOOK_SECRET"`
+	UserBotUsername      string `env:"BLOOMARY_USER_BOT_USERNAME"`
+	DeepgramAPIKey       string `env:"DEEPGRAM_API_KEY"`
 }
 
 type PositiveFloat float64
