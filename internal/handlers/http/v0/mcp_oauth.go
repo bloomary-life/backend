@@ -258,9 +258,23 @@ func (s *service) renderMCPConsent(w http.ResponseWriter, consent mcpDomain.Cons
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", consentPagePolicy(auth.RedirectURI))
 	client, _ := s.parseMCPClient(auth.ClientID)
-	_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body><main><h1>Connect Bloomary</h1><p><strong>%s</strong> requests access to your Bloomary drafts and insights.</p><p>Permissions: %s.</p><p>Only active paid plans can connect. The app name is supplied by the connecting client; verify it in ChatGPT or Claude before allowing.</p><form method="post" action="/oauth/authorize/consent"><input type="hidden" name="consent_id" value="%s"><button name="decision" value="approve">Allow</button> <button name="decision" value="deny">Cancel</button></form></main></body></html>`, html.EscapeString(client.Name), html.EscapeString(mcpScopeDescription(auth.Scope)), html.EscapeString(consent.ID))
+	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect Bloomary</title><style>%s</style></head><body><main><p class="brand">Bloomary</p><h1>Connect Bloomary</h1><p><strong>%s</strong> asks for access to your Bloomary drafts and insights.</p><p class="muted">It can: %s.</p><p class="muted">Only active paid plans can connect. The app name comes from the connecting app: check it in ChatGPT or Claude before you allow.</p><form method="post" action="/oauth/authorize/consent"><input type="hidden" name="consent_id" value="%s"><button class="primary" name="decision" value="approve">Allow</button><button name="decision" value="deny">Cancel</button></form></main></body></html>`, consentPageCSS, html.EscapeString(client.Name), html.EscapeString(mcpScopeDescription(auth.Scope)), html.EscapeString(consent.ID))
+}
+
+// Bloomary's platform colors (platform/styles.css): paper, ink, coral.
+const consentPageCSS = `body{margin:0;background:#f2f0e8;color:#11120f;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}main{max-width:520px;margin:10vh auto;padding:32px;background:#fffdf7;border:1px solid rgba(17,18,15,.2);border-radius:16px}.brand{font-weight:700;color:#ff5f3d;margin:0 0 8px}h1{font-size:28px;line-height:1.2;margin:0 0 16px}.muted{color:rgba(17,18,15,.68);font-size:15px}form{display:flex;gap:12px;margin-top:24px}button{flex:1;padding:12px 16px;font:inherit;font-weight:600;border-radius:999px;border:1px solid rgba(17,18,15,.2);background:#fffdf7;color:#11120f;cursor:pointer}button.primary{background:#ff5f3d;border-color:#ff5f3d;color:#fffdf7}@media(max-width:560px){main{margin:0;border-radius:0;min-height:100vh;box-sizing:border-box}}`
+
+// consentPagePolicy lets the Allow/Cancel form follow the 302 to the client's redirect URI:
+// browsers apply form-action to redirects after a form post, so 'self' alone blocked the
+// return to the client (e.g. Claude Code's http://localhost callback) and the code was never exchanged.
+func consentPagePolicy(redirectURI string) string {
+	formAction := "'self'"
+	if u, err := url.Parse(redirectURI); err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" {
+		formAction += " " + u.Scheme + "://" + u.Host
+	}
+	return "default-src 'none'; style-src 'unsafe-inline'; form-action " + formAction + "; base-uri 'none'; frame-ancestors 'none'"
 }
 
 func (s *service) failMCPLogin(w http.ResponseWriter, r *http.Request, linkedinState, code, description string) {
