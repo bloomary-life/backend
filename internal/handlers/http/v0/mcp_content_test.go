@@ -51,6 +51,12 @@ func newMCPTestService(t *testing.T, svc *service) *service {
 // callMCPTool sends one tools/call through the real MCP HTTP transport with a signed member token.
 func callMCPTool(t *testing.T, svc *service, scopes []string, tool string, args any) mcpToolResult {
 	t.Helper()
+	return callMCPToolWithHeaders(t, svc, scopes, tool, args, nil)
+}
+
+// callMCPToolWithHeaders is callMCPTool with extra request headers.
+func callMCPToolWithHeaders(t *testing.T, svc *service, scopes []string, tool string, args any, headers map[string]string) mcpToolResult {
+	t.Helper()
 	token, err := svc.signMCPToken(mcpTokenClaims{
 		Issuer: svc.config.MCPIssuerURL, Subject: "member-1", Audience: svc.config.MCPResourceURL,
 		IssuedAt: time.Now().Unix(), Expires: time.Now().Add(time.Minute).Unix(), Scope: scopes,
@@ -63,6 +69,9 @@ func callMCPTool(t *testing.T, svc *service, scopes []string, tool string, args 
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
 	response := httptest.NewRecorder()
 	svc.mcpHandler.ServeHTTP(response, request)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -396,4 +405,17 @@ func TestMCPScheduleDraftStoresFirstComment(t *testing.T) {
 	result = callMCPTool(t, svc, []string{"drafts:write"}, "schedule_draft", map[string]any{"draft_id": "draft-1", "publish_at": "2026-11-03T10:00:00+02:00"})
 	require.False(t, result.Result.IsError, result.Result.Content)
 	require.NotContains(t, comments.saved, "member-1/draft-1", "scheduling again without first_comment clears the old one")
+}
+
+func TestMCPSendSuggestionKeepsToTheKindItsConnectionPinned(t *testing.T) {
+	// Verifies: BE-023
+	send, err := stories.NewSendSuggestion(paidAccess(t), reviewMocks.NewMockRepository(t), telegramMocks.NewMockNotifier(t))
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{sendSuggestionStory: send})
+
+	result := callMCPToolWithHeaders(t, svc, []string{"insights:write"}, "send_suggestion",
+		map[string]any{"kind": "trend", "target_url": "https://xn--nthropic-abc.com/x", "text": "Story"}, map[string]string{mcpSuggestionKindHeader: "comment"})
+
+	require.True(t, result.Result.IsError)
+	require.Contains(t, result.Result.Content[0].Text, `may send kind "comment" only`)
 }

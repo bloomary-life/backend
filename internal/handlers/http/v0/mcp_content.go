@@ -87,6 +87,9 @@ type mcpSendSuggestionInput struct {
 	Silent    bool   `json:"silent,omitempty" jsonschema:"Deliver without a notification sound (e.g. every trend after the first of the day)"`
 }
 
+// mcpSuggestionKindHeader, when a client sends it, is the only send_suggestion kind that connection may use.
+const mcpSuggestionKindHeader = "X-Bloomary-Suggestion-Kind"
+
 type mcpSuggestionSent struct {
 	SuggestionID string `json:"suggestionId"`
 	CopyButton   bool   `json:"copyButton"`
@@ -303,7 +306,7 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			return nil, mcpNotice{NoticeID: notice.ID, DraftID: notice.DraftID}, nil
 		})
 	mcp.AddTool(server, mcpOAuthTool("send_suggestion", "Send the member a comment idea (kind comment: Open post, Copy, rating 1-5 and Posted; the member posts it themselves) or a news story (kind trend: Open source; a reply to it becomes an insight with the story in list_insights).", "insights:write"),
-		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpSendSuggestionInput) (*mcp.CallToolResult, mcpSuggestionSent, error) {
+		func(ctx context.Context, req *mcp.CallToolRequest, input mcpSendSuggestionInput) (*mcp.CallToolResult, mcpSuggestionSent, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "insights:write")
 			if err != nil {
 				return nil, mcpSuggestionSent{}, err
@@ -311,7 +314,15 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			if s.sendSuggestionStory == nil {
 				return nil, mcpSuggestionSent{}, errors.New("the Bloomary Telegram bot is not configured")
 			}
-			suggestion, err := s.sendSuggestionStory.Send(ctx, reviewDomain.SuggestionInput{MemberID: memberID, Kind: strings.TrimSpace(input.Kind), Silent: input.Silent,
+			kind := strings.TrimSpace(input.Kind)
+			// A client may pin the one kind its session may send (the content engine's comments job: comment), so text
+			// its model read cannot make it send the other kind.
+			if req != nil && req.Extra != nil {
+				if pinned := strings.TrimSpace(req.Extra.Header.Get(mcpSuggestionKindHeader)); pinned != "" && pinned != kind {
+					return nil, mcpSuggestionSent{}, fmt.Errorf("this connection may send kind %q only", pinned)
+				}
+			}
+			suggestion, err := s.sendSuggestionStory.Send(ctx, reviewDomain.SuggestionInput{MemberID: memberID, Kind: kind, Silent: input.Silent,
 				TargetURL: input.TargetURL, Text: input.Text, Context: input.Context})
 			if err != nil {
 				return nil, mcpSuggestionSent{}, err

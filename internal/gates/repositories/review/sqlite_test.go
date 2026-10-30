@@ -160,3 +160,17 @@ func TestTrendSuggestionIsFoundByMessageAndFirstCommentIsReplaced(t *testing.T) 
 	_, _, err = repo.FirstComment(ctx, "member-1", "draft-1")
 	require.ErrorIs(t, err, reviewDomain.ErrNotFound)
 }
+
+func TestDraftPreviewKeepsItsFirstComment(t *testing.T) {
+	// Verifies: BE-019
+	repo := newRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	require.NoError(t, repo.CreateNotice(ctx, reviewDomain.Notice{ID: "n-1", MemberID: "member-1", DraftID: "draft-1", ProposedText: "Post",
+		FirstComment: "Book: https://lumen.observer", Status: reviewDomain.NoticeSent, CreatedAt: now}))
+
+	notice, err := repo.NoticeByID(ctx, "member-1", "n-1")
+
+	require.NoError(t, err)
+	require.Equal(t, "Book: https://lumen.observer", notice.FirstComment)
+}

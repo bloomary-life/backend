@@ -18,6 +18,7 @@ const (
 	trendSavedTail = "When your AI app turns it into a post, the preview comes here. Each reply becomes its own post: to add to this one, wait for its preview and reply there."
 	trendSaved     = "Saved your take on this story. " + trendSavedTail
 	trendLimit     = "That's 60 ideas in 24 hours, the limit. Send more in a few hours."
+	commentReply   = "Comment ideas can't be changed by reply: tap Copy and edit it before posting."
 )
 
 // TrendReplies turns a member's reply to a trend message into an insight that carries the story (source and summary).
@@ -36,6 +37,7 @@ func NewTrendReplies(reviews reviewDomain.Repository, insights insightDomain.Rep
 }
 
 // Claim owns replies to the member's own trend messages sent since the current link; it refuses at the daily idea limit.
+// A reply to a comment idea is claimed too and refused, so it never becomes a post idea.
 func (s *TrendReplies) Claim(ctx context.Context, link telegramDomain.Link, replyToMessageID int64) (telegramDomain.ReplyClaim, bool, error) {
 	suggestion, err := s.reviews.SuggestionByMessage(ctx, link.MemberID, replyToMessageID)
 	if errors.Is(err, reviewDomain.ErrNotFound) {
@@ -44,7 +46,13 @@ func (s *TrendReplies) Claim(ctx context.Context, link telegramDomain.Link, repl
 	if err != nil {
 		return telegramDomain.ReplyClaim{}, false, err
 	}
-	if suggestion.Kind != reviewDomain.KindTrend || suggestion.CreatedAt.Before(link.LinkedAt) {
+	if suggestion.CreatedAt.Before(link.LinkedAt) {
+		return telegramDomain.ReplyClaim{}, false, nil
+	}
+	if suggestion.Kind == reviewDomain.KindComment {
+		return telegramDomain.ReplyClaim{ID: suggestion.ID, Refusal: commentReply}, true, nil
+	}
+	if suggestion.Kind != reviewDomain.KindTrend {
 		return telegramDomain.ReplyClaim{}, false, nil
 	}
 	claim := telegramDomain.ReplyClaim{ID: suggestion.ID}

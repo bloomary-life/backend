@@ -44,7 +44,8 @@ type Repository interface {
 type NotifyScheduledStory interface {
 	Notify(ctx context.Context, memberID, draftID, note string) (Notice, error)
 	// NotifyDraft sends the preview of an unscheduled draft (no time, Discard); firstComment, when set, is shown
-	// after the post as text to paste under it, with a Copy button. It is not stored.
+	// after the post as text to paste under it, with a Copy button. It is stored with the notice, and a later preview
+	// of the draft without one (an edit, My posts → Preview) shows it again.
 	NotifyDraft(ctx context.Context, memberID, draftID, note, firstComment string) (Notice, error)
 }
 

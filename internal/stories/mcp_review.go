@@ -90,9 +90,10 @@ func (s *NotifyScheduled) NotifyDraft(ctx context.Context, memberID, draftID, no
 }
 
 // PreviewDraft sends again the draft of one of the member's draft previews on request in the bot (My posts → Preview).
+// A preview replaced by a newer one still works (a second tap on the same button); a discarded one does not.
 func (s *NotifyScheduled) PreviewDraft(ctx context.Context, memberID, noticeID string) (reviewDomain.Notice, error) {
 	notice, err := s.reviews.NoticeByID(ctx, memberID, noticeID)
-	if err != nil || notice.Status != reviewDomain.NoticeSent {
+	if err != nil || notice.Status == reviewDomain.NoticeSkipped {
 		return reviewDomain.Notice{}, ErrMCPDraftNotFound
 	}
 	draft, err := s.drafts.ByID(ctx, memberID, notice.DraftID)
@@ -134,8 +135,12 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 	if err != nil {
 		return reviewDomain.Notice{}, err
 	}
+	note = strings.TrimSpace(note)
+	if job.ID == "" && (firstComment == "" || note == "") {
+		firstComment, note = s.earlierDraftPreview(ctx, memberID, draft.DraftID, now, firstComment, note)
+	}
 	notice := reviewDomain.Notice{ID: id, MemberID: memberID, DraftID: draft.DraftID, ScheduleID: job.ID, ScheduledAt: job.ScheduledAt,
-		ProposedText: draft.Body, Note: strings.TrimSpace(note), Status: reviewDomain.NoticeSent, CreatedAt: now, Requested: requested}
+		ProposedText: draft.Body, Note: note, FirstComment: firstComment, Status: reviewDomain.NoticeSent, CreatedAt: now, Requested: requested}
 	if err := s.reviews.CreateNotice(ctx, notice); err != nil {
 		return reviewDomain.Notice{}, err
 	}
@@ -173,6 +178,28 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 	}
 	s.replaceOlder(ctx, notice)
 	return notice, nil
+}
+
+// earlierDraftPreview fills an empty first comment and note from the draft's newest earlier preview that has them, so the
+// links Kat pastes under the post never vanish when an edit or a My posts tap replaces the preview that showed them.
+func (s *NotifyScheduled) earlierDraftPreview(ctx context.Context, memberID, draftID string, now time.Time, firstComment, note string) (string, string) {
+	notices, err := s.reviews.ListNotices(ctx, memberID, now.Add(-reviewDomain.FeedbackWindow))
+	if err != nil {
+		logger.FromContext(ctx).WithError(err).Info("telegram_list_previews_failed")
+		return firstComment, note
+	}
+	for _, older := range notices {
+		if older.DraftID != draftID || older.ScheduleID != "" {
+			continue
+		}
+		if firstComment == "" {
+			firstComment = older.FirstComment
+		}
+		if note == "" {
+			note = older.Note
+		}
+	}
+	return firstComment, note
 }
 
 const replacedPreview = "Replaced by a newer preview below."
@@ -486,10 +513,11 @@ func (s *ListFeedback) List(ctx context.Context, memberID string, since time.Tim
 	return out, nil
 }
 
-// postStatus is "skipped", "scheduled" while the post is still waiting, or the schedule's final status.
+// postStatus is "skipped", "replaced" (an older preview of a draft), "scheduled" while the post is still waiting,
+// or the schedule's final status.
 func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notice) string {
-	if notice.Status == reviewDomain.NoticeSkipped {
-		return string(reviewDomain.NoticeSkipped)
+	if notice.Status == reviewDomain.NoticeSkipped || notice.Status == reviewDomain.NoticeReplaced {
+		return string(notice.Status)
 	}
 	if notice.ScheduleID == "" {
 		return "draft"

@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	noticeColumns     = `id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,COALESCE(skipped_at,''),message_id,photo_message_id,requested`
+	noticeColumns     = `id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,COALESCE(skipped_at,''),message_id,photo_message_id,requested,first_comment`
 	suggestionColumns = `id,member_id,kind,target_url,body,context,rating,created_at,COALESCE(rated_at,''),COALESCE(posted_at,''),message_id`
 	editColumns       = `id,member_id,draft_id,notice_id,body,source,created_at,COALESCE(applied_at,'')`
 )
@@ -56,6 +56,9 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 	if err := addIntColumn(db, "comment_suggestions", "message_id"); err != nil {
 		return nil, err
 	}
+	if err := addColumn(db, "scheduled_post_notices", "first_comment", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return nil, err
+	}
 	var hasSchedule int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('draft_first_comments') WHERE name='schedule_id'`).Scan(&hasSchedule); err != nil {
 		return nil, fmt.Errorf("read draft_first_comments columns: %w", err)
@@ -80,6 +83,11 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 
 // addIntColumn adds an INTEGER column (default 0) to one of this repository's tables when it is missing.
 func addIntColumn(db *sql.DB, table, column string) error {
+	return addColumn(db, table, column, "INTEGER NOT NULL DEFAULT 0")
+}
+
+// addColumn adds a column with the given type and default to one of this repository's tables when it is missing.
+func addColumn(db *sql.DB, table, column, decl string) error {
 	var exists int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?`, table, column).Scan(&exists); err != nil {
 		return fmt.Errorf("read %s columns: %w", table, err)
@@ -87,15 +95,15 @@ func addIntColumn(db *sql.DB, table, column string) error {
 	if exists > 0 {
 		return nil
 	}
-	if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+	if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + decl); err != nil {
 		return fmt.Errorf("add %s.%s: %w", table, column, err)
 	}
 	return nil
 }
 
 func (r *SQLiteRepository) CreateNotice(ctx context.Context, n reviewDomain.Notice) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO scheduled_post_notices(id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,requested) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		n.ID, n.MemberID, n.DraftID, n.ScheduleID, n.ProposedText, n.Note, string(n.Status), formatTime(n.ScheduledAt), formatTime(n.CreatedAt), n.Requested)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO scheduled_post_notices(id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,requested,first_comment) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		n.ID, n.MemberID, n.DraftID, n.ScheduleID, n.ProposedText, n.Note, string(n.Status), formatTime(n.ScheduledAt), formatTime(n.CreatedAt), n.Requested, n.FirstComment)
 	if err != nil {
 		return fmt.Errorf("insert scheduled post notice member_id=%q: %w", n.MemberID, err)
 	}
@@ -347,7 +355,7 @@ type scanner interface{ Scan(...any) error }
 func scanNotice(row scanner) (reviewDomain.Notice, error) {
 	var n reviewDomain.Notice
 	var status, scheduledAt, createdAt, skippedAt string
-	err := row.Scan(&n.ID, &n.MemberID, &n.DraftID, &n.ScheduleID, &n.ProposedText, &n.Note, &status, &scheduledAt, &createdAt, &skippedAt, &n.MessageID, &n.PhotoMessageID, &n.Requested)
+	err := row.Scan(&n.ID, &n.MemberID, &n.DraftID, &n.ScheduleID, &n.ProposedText, &n.Note, &status, &scheduledAt, &createdAt, &skippedAt, &n.MessageID, &n.PhotoMessageID, &n.Requested, &n.FirstComment)
 	if errors.Is(err, sql.ErrNoRows) {
 		return reviewDomain.Notice{}, reviewDomain.ErrNotFound
 	}

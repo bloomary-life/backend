@@ -63,6 +63,8 @@ type Notice struct {
 	ScheduleID   string
 	ProposedText string
 	Note         string
+	// FirstComment is the draft-only first comment shown under the preview; later previews of the draft reuse it.
+	FirstComment string
 	Status       NoticeStatus
 	// MessageID is the Telegram message of the preview; a reply to it becomes an edit request.
 	MessageID int64

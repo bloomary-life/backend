@@ -81,9 +81,11 @@ type telegramBot struct {
 	voice       telegramDomain.MemberSet
 	numbers     telegramDomain.MemberSet
 	platformURL string
-	// notLinkedAt throttles the "not linked" answer to one per Telegram user per notLinkedRepeat.
-	notLinkedMu sync.Mutex
-	notLinkedAt map[int64]time.Time
+	// notLinkedAt throttles the "not linked" answer to one per Telegram user per notLinkedTTL; each ID is
+	// forgotten notLinkedTTL after it was stored (the privacy policy says at most one hour).
+	notLinkedMu  sync.Mutex
+	notLinkedAt  map[int64]time.Time
+	notLinkedTTL time.Duration
 }
 
 var _ telegramDomain.BotStory = (*telegramBot)(nil)
@@ -99,7 +101,7 @@ func NewTelegramBot(
 	return &telegramBot{links: links, bot: bot, transcriber: transcriber, insights: insights, accounts: accounts,
 		replies: handlers.Replies, callbacks: handlers.Callbacks, commands: handlers.Commands, platformURL: strings.TrimRight(platformURL, "/"),
 		voice: handlers.VoiceMembers, numbers: handlers.NumbersMembers,
-		notLinkedAt: map[int64]time.Time{}}, nil
+		notLinkedAt: map[int64]time.Time{}, notLinkedTTL: notLinkedRepeat}, nil
 }
 
 func (s *telegramBot) HandleUpdate(ctx context.Context, update telegramDomain.Update) error {
@@ -188,18 +190,17 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 func (s *telegramBot) replyNotLinked(ctx context.Context, message *telegramDomain.IncomingMessage) error {
 	now := time.Now()
 	s.notLinkedMu.Lock()
-	last, seen := s.notLinkedAt[message.From.ID]
-	if seen && now.Sub(last) < notLinkedRepeat {
+	if _, seen := s.notLinkedAt[message.From.ID]; seen {
 		s.notLinkedMu.Unlock()
 		return nil
 	}
-	for id, at := range s.notLinkedAt {
-		if now.Sub(at) >= notLinkedRepeat {
-			delete(s.notLinkedAt, id)
-		}
-	}
 	s.notLinkedAt[message.From.ID] = now
 	s.notLinkedMu.Unlock()
+	time.AfterFunc(s.notLinkedTTL, func() {
+		s.notLinkedMu.Lock()
+		delete(s.notLinkedAt, message.From.ID)
+		s.notLinkedMu.Unlock()
+	})
 	_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: message.ChatID, Text: fmt.Sprintf(botNotLinked, s.platformURL)})
 	return err
 }
