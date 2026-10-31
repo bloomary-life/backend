@@ -97,3 +97,38 @@ func TestDownloadFileReadsFileFromBotFilePath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "OggS", string(data))
 }
+
+func TestSendPhotoCarriesCaptionAndButtonsAndEditFallsBackToTheCaption(t *testing.T) {
+	// Verifies: BE-026
+	var paths []string
+	var caption, keyboard string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/bot123:abc/sendPhoto":
+			require.NoError(t, r.ParseMultipartForm(1<<20))
+			caption, keyboard = r.FormValue("caption"), r.FormValue("reply_markup")
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":5}}`))
+		case "/bot123:abc/editMessageText": // a photo message has no text to edit
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"ok":false,"description":"Bad Request: there is no text in the message to edit"}`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+		}
+	}))
+	defer server.Close()
+	client, err := httpclient.NewClient(context.Background())
+	require.NoError(t, err)
+	api, err := New(client, server.URL, "123:abc")
+	require.NoError(t, err)
+
+	id, err := api.SendPhoto(context.Background(), telegramDomain.Photo{ChatID: 7, Data: []byte("png"), MimeType: "image/png", Caption: "The post",
+		Buttons: [][]telegramDomain.Button{{{Text: "📅 Schedule (next slot)", CallbackData: "sn:n-1"}}}})
+	require.NoError(t, err)
+	require.Equal(t, int64(5), id)
+	require.Equal(t, "The post", caption)
+	require.Contains(t, keyboard, `"callback_data":"sn:n-1"`)
+
+	require.NoError(t, api.EditMessageText(context.Background(), 7, 5, "Discarded."))
+	require.Equal(t, []string{"/bot123:abc/sendPhoto", "/bot123:abc/editMessageText", "/bot123:abc/editMessageCaption"}, paths)
+}

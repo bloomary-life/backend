@@ -43,14 +43,15 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	objects := draftMocks.NewMockObjectStore(t)
 	objects.EXPECT().Read(mock.Anything, "key-1").Return([]byte("png"), nil)
 	notifier := telegramMocks.NewMockNotifier(t)
+	// BE-026: the note first, then one photo message: the post as its caption with Skip under it.
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
 		return strings.Contains(m.Text, "Goes out: Tue 3 Nov, 11:00 (UTC+2)") && strings.Contains(m.Text, "Note: Sources: Eurostat 2025") &&
-			strings.Contains(m.Text, "Reply to this message (voice or text) to change it.") &&
-			strings.HasSuffix(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 2 &&
-			m.Buttons[0][0].CallbackData == "pv:e" && m.Buttons[0][1].CallbackData == "sk:"+created.ID &&
-			m.Buttons[1][0].URL == "https://platform.bloomary.life/editor?draft=draft-1"
-	}), &telegramDomain.Photo{Data: []byte("png"), MimeType: "image/png", Caption: "Image for the post below"}).Return(telegramDomain.Delivery{MessageID: 10, PhotoMessageID: 9}, nil)
-	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(10), int64(9)).Return(nil)
+			strings.Contains(m.Text, "reply to the post with voice or text") && !strings.Contains(m.Text, "Proof beats adjectives.") && len(m.Buttons) == 0
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 8}, nil).Once()
+	notifier.EXPECT().Notify(mock.Anything, "member-1", telegramDomain.OutgoingMessage{}, mock.MatchedBy(func(p *telegramDomain.Photo) bool {
+		return p != nil && p.Caption == "Proof beats adjectives." && len(p.Buttons) == 1 && p.Buttons[0][0].CallbackData == "sk:"+created.ID
+	})).Return(telegramDomain.Delivery{MessageID: 9, PhotoMessageID: 9}, nil).Once()
+	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(9), int64(0)).Return(nil)
 	story, err := NewNotifyScheduled(proAccess(t), drafts, jobs, reviews, objects, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 
@@ -60,8 +61,7 @@ func TestNotifyScheduledSendsPreviewWithEditAndSkip(t *testing.T) {
 	require.Equal(t, "job-1", notice.ScheduleID)
 	require.Equal(t, "Proof beats adjectives.", notice.ProposedText)
 	require.Equal(t, reviewDomain.NoticeSent, created.Status)
-	require.Equal(t, int64(10), notice.MessageID)
-	require.Equal(t, int64(9), notice.PhotoMessageID, "a reply to the image must reach the same notice")
+	require.Equal(t, int64(9), notice.MessageID, "a reply to the photo with the post must reach the notice")
 }
 
 func TestNotifyDraftSendsPreviewWithDiscardAndNoTime(t *testing.T) {
@@ -74,9 +74,13 @@ func TestNotifyDraftSendsPreviewWithDiscardAndNoTime(t *testing.T) {
 	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.HasPrefix(m.Text, draftHeader+"\n\n") && !strings.Contains(m.Text, "Goes out") &&
-			m.Buttons[0][0].Text == "✏️ How to edit" && m.Buttons[0][1].Text == "Discard" && strings.HasPrefix(m.Buttons[0][1].CallbackData, "sk:")
-	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 20}, nil)
+		return m.Text == draftHeader && len(m.Buttons) == 0
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 19}, nil).Once()
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return m.Text == "Proof beats adjectives." && len(m.Buttons) == 2 &&
+			m.Buttons[0][0].Text == "📅 Schedule (next slot)" && strings.HasPrefix(m.Buttons[0][0].CallbackData, "sn:") &&
+			m.Buttons[1][0].Text == "Discard" && strings.HasPrefix(m.Buttons[1][0].CallbackData, "sk:")
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 20}, nil).Once()
 	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(20), int64(0)).Return(nil)
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)

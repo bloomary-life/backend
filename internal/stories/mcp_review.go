@@ -22,12 +22,15 @@ import (
 	"bloomary-api/internal/platform/logger"
 )
 
-const noticeHeader = "LinkedIn post, scheduled. It goes out at the time below unless you tap Skip. Reply to this message (voice or text) to change it."
+const noticeHeader = "LinkedIn post below, scheduled. It goes out at the time below unless you tap Skip. To change it, reply to the post with voice or text."
 
-const draftHeader = "LinkedIn post draft, not scheduled. Reply to this message (voice or text) to change it. To post it, open it in Bloomary."
+const draftHeader = "LinkedIn post draft below, not scheduled. To change it, reply to the post with voice or text. 📅 Schedule approves it for your next posting slot."
 
-// Telegram counts message length in UTF-16 code units; a message holds at most 4096.
-const telegramMessageLimit = 4096
+// Telegram counts message length in UTF-16 code units; a message holds at most 4096, a photo caption 1024.
+const (
+	telegramMessageLimit = 4096
+	telegramCaptionLimit = 1024
+)
 
 // NotifyScheduled tells the member in Telegram that a post is scheduled: preview, time, Edit link and Skip.
 // The post publishes at its time unless the member taps Skip.
@@ -155,22 +158,35 @@ func (s *NotifyScheduled) send(ctx context.Context, memberID string, draft draft
 		if err != nil {
 			return reviewDomain.Notice{}, fmt.Errorf("read draft image: %w", err)
 		}
-		photo = &telegramDomain.Photo{Data: data, MimeType: draft.Image.MimeType, Caption: "Image for the post below"}
+		photo = &telegramDomain.Photo{Data: data, MimeType: draft.Image.MimeType}
 	}
-	header, first := noticeHeader, []telegramDomain.Button{{Text: "✏️ How to edit", CallbackData: previewPrefix + "e"}, {Text: "Skip", CallbackData: "sk:" + id}}
+	// Two messages (BE-026, Kat 2026-10-31): the note (header, time, note, first comment), then the post as it will
+	// look on LinkedIn: the image with the post as its caption and the buttons under it. A post too long for a
+	// caption (or without an image) goes as a text message after the image. Schedule is Kat's approval.
+	header, postButtons := noticeHeader, [][]telegramDomain.Button{{{Text: "Skip", CallbackData: "sk:" + id}}}
 	if job.ID == "" {
-		header, first[1].Text = draftHeader, "Discard"
+		header = draftHeader
+		postButtons = [][]telegramDomain.Button{{{Text: "📅 Schedule (next slot)", CallbackData: scheduleNextPrefix + id}}, {{Text: "Discard", CallbackData: "sk:" + id}}}
 	}
-	text, buttons := noticeText(header, notice), [][]telegramDomain.Button{first}
+	info, infoButtons := noticeInfo(header, notice), [][]telegramDomain.Button(nil)
 	if firstComment != "" {
-		text = noticeTextWithTail(header, notice, firstCommentBlock+firstComment)
+		info += firstCommentBlock + firstComment
 		if utf8.RuneCountInString(firstComment) <= reviewDomain.CopyTextLimit {
-			buttons = append(buttons, []telegramDomain.Button{{Text: "Copy first comment", CopyText: firstComment}})
+			infoButtons = [][]telegramDomain.Button{{{Text: "Copy first comment", CopyText: firstComment}}}
 		}
 	}
-	buttons = append(buttons, []telegramDomain.Button{{Text: "Edit in Bloomary", URL: s.platformURL + "/editor?draft=" + url.QueryEscape(draft.DraftID)}})
-	message := telegramDomain.OutgoingMessage{Text: text, Buttons: buttons}
-	sent, err := s.notifier.Notify(ctx, memberID, message, photo)
+	_, err = s.notifier.Notify(ctx, memberID, telegramDomain.OutgoingMessage{Text: info, Buttons: infoButtons}, nil)
+	var sent telegramDomain.Delivery
+	if err == nil {
+		post := telegramDomain.OutgoingMessage{Text: fitTelegram("", notice.ProposedText, shortenedSuffix), Buttons: postButtons}
+		if photo != nil && utf16Len(notice.ProposedText) <= telegramCaptionLimit {
+			photo.Caption, photo.Buttons, post = notice.ProposedText, postButtons, telegramDomain.OutgoingMessage{}
+		}
+		sent, err = s.notifier.Notify(ctx, memberID, post, photo)
+		if sent.MessageID == sent.PhotoMessageID {
+			sent.PhotoMessageID = 0 // one photo message that is the post itself
+		}
+	}
 	if err != nil {
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
 			return reviewDomain.Notice{}, reviewDomain.ErrNotLinked
@@ -550,16 +566,14 @@ func (s *ListFeedback) postStatus(ctx context.Context, notice reviewDomain.Notic
 
 const firstCommentBlock = "\n\nFirst comment (paste under the post after you publish):\n"
 
-// noticeTextWithTail is noticeText with tail (the first comment) kept whole after the post; the post is shortened instead.
-func noticeTextWithTail(header string, notice reviewDomain.Notice, tail string) string {
-	return noticeHead(header, notice, telegramMessageLimit-utf16Len(tail)) + tail
-}
-
 func noticeText(header string, notice reviewDomain.Notice) string {
 	return noticeHead(header, notice, telegramMessageLimit)
 }
 
-func noticeHead(header string, notice reviewDomain.Notice, limit int) string {
+const shortenedSuffix = "\n\n(Shortened here; open Bloomary for the full text.)"
+
+// noticeInfo is the preview's info message: header, the publish time of a scheduled post, and the note.
+func noticeInfo(header string, notice reviewDomain.Notice) string {
 	head := header
 	if notice.ScheduleID != "" {
 		head += "\nGoes out: " + formatPostTime(notice.ScheduledAt)
@@ -567,7 +581,11 @@ func noticeHead(header string, notice reviewDomain.Notice, limit int) string {
 	if notice.Note != "" {
 		head += "\nNote: " + notice.Note
 	}
-	return fitTelegramLimit(head+"\n\n", notice.ProposedText, "\n\n(Shortened here; open Bloomary for the full text.)", limit)
+	return head
+}
+
+func noticeHead(header string, notice reviewDomain.Notice, limit int) string {
+	return fitTelegramLimit(noticeInfo(header, notice)+"\n\n", notice.ProposedText, shortenedSuffix, limit)
 }
 
 // fitTelegram appends body to head, cutting body (and adding suffix) so the message fits Telegram's limit.

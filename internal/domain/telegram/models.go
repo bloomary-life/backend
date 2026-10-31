@@ -123,6 +123,8 @@ type Photo struct {
 	MimeType string
 	Caption  string
 	ChatID   int64
+	// Buttons is the inline keyboard under a photo sent with its post as the caption (BE-026).
+	Buttons [][]Button
 }
 
 // Delivery is what a Notifier sent: the message and, when a photo went before it, the photo's message.

@@ -98,6 +98,10 @@ func (s *telegramNotifier) Notify(ctx context.Context, memberID string, message 
 		if sent.PhotoMessageID, err = s.bot.SendPhoto(ctx, *photo); err != nil {
 			return sent, err
 		}
+		if message.Text == "" { // the photo carries the text as its caption (BE-026)
+			sent.MessageID = sent.PhotoMessageID
+			return sent, nil
+		}
 	}
 	message.ChatID = link.ChatID
 	sent.MessageID, err = s.bot.SendMessage(ctx, message)

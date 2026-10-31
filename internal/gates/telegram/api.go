@@ -115,6 +115,13 @@ func (a *API) SendPhoto(ctx context.Context, photo telegramDomain.Photo) (int64,
 	if photo.Caption != "" {
 		_ = writer.WriteField("caption", photo.Caption)
 	}
+	if len(photo.Buttons) > 0 {
+		keyboard, err := json.Marshal(markup(photo.Buttons))
+		if err != nil {
+			return 0, err
+		}
+		_ = writer.WriteField("reply_markup", string(keyboard))
+	}
 
 	header := textproto.MIMEHeader{}
 	header.Set("Content-Disposition", `form-data; name="photo"; filename="image"`)
@@ -142,11 +149,26 @@ func (a *API) SendPhoto(ctx context.Context, photo telegramDomain.Photo) (int64,
 	return result.MessageID, nil
 }
 
-// EditMessageText replaces the text and removes the inline keyboard, so a button works once.
+// EditMessageText replaces the text and removes the inline keyboard, so a button works once. A photo message (a post
+// preview with its post as the caption, BE-026) has no text: then its caption is replaced instead.
 func (a *API) EditMessageText(ctx context.Context, chatID, messageID int64, text string) error {
-	return a.callJSON(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text,
+	err := a.callJSON(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text,
 		"reply_markup": replyMarkup{InlineKeyboard: [][]button{}}}, nil)
+	if err == nil {
+		return nil
+	}
+	if r := []rune(text); len(r) > captionRunes {
+		text = string(r[:captionRunes-1]) + "…"
+	}
+	if captionErr := a.callJSON(ctx, "editMessageCaption", map[string]any{"chat_id": chatID, "message_id": messageID, "caption": text,
+		"reply_markup": replyMarkup{InlineKeyboard: [][]button{}}}, nil); captionErr != nil {
+		return err
+	}
+	return nil
 }
+
+// captionRunes keeps an edited caption under Telegram's 1024-unit caption limit (emoji count twice in UTF-16).
+const captionRunes = 500
 
 // SetMyCommands sets the command menu shown next to the message field.
 func (a *API) SetMyCommands(ctx context.Context, commands []telegramDomain.Command) error {

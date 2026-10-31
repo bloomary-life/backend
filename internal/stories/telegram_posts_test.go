@@ -70,8 +70,11 @@ func TestPreviewButtonSendsPreviewThatAcceptsReplies(t *testing.T) {
 	f.reviews.EXPECT().CreateNotice(mock.Anything, mock.MatchedBy(func(n reviewDomain.Notice) bool { return n.ScheduleID == "job-1" && n.Requested })).Return(nil)
 	f.reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil).Maybe()
 	f.notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return m.Buttons[0][0].Text == "✏️ How to edit" && m.Buttons[0][1].Text == "Skip"
-	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 12}, nil)
+		return strings.HasPrefix(m.Text, noticeHeader) && len(m.Buttons) == 0
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 11}, nil).Once()
+	f.notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return m.Text == "Post" && len(m.Buttons) == 1 && m.Buttons[0][0].Text == "Skip"
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 12}, nil).Once()
 	f.reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(12), int64(0)).Return(nil)
 	f.gate.EXPECT().AnswerCallback(mock.Anything, "cb-2", "", false).Return(nil)
 

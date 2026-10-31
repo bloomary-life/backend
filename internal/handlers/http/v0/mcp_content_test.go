@@ -307,9 +307,11 @@ func TestMCPNotifyDraftSendsUnscheduledPreviewWithoutSkip(t *testing.T) {
 	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(4), int64(0)).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.Contains(m.Text, "LinkedIn post draft, not scheduled.") && !strings.Contains(m.Text, "Goes out") &&
-			m.Buttons[0][0].Text == "✏️ How to edit" && m.Buttons[0][1].Text == "Discard"
-	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 4}, nil)
+		return strings.Contains(m.Text, "LinkedIn post draft below, not scheduled.") && !strings.Contains(m.Text, "Goes out") && len(m.Buttons) == 0
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 3}, nil).Once()
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return len(m.Buttons) == 2 && m.Buttons[0][0].Text == "📅 Schedule (next slot)" && m.Buttons[1][0].Text == "Discard"
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 4}, nil).Once()
 	notify, err := stories.NewNotifyScheduled(paidAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
 	svc := newMCPTestService(t, &service{notifyScheduledStory: notify})

@@ -60,7 +60,10 @@ func clearFixture(t *testing.T, earlier []reviewDomain.Notice, created func(revi
 	reviews.EXPECT().SetNoticeMessage(mock.Anything, "member-1", mock.Anything, int64(21), int64(0)).Return(nil)
 	reviews.EXPECT().ReplaceNotice(mock.Anything, "member-1", mock.Anything).Return(nil).Maybe()
 	notifier := telegramMocks.NewMockNotifier(t)
-	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(sent), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 21}, nil)
+	// BE-026: sent checks the note message; the post goes in its own message after it.
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(sent), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 20}, nil).Once()
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool { return m.Text == "Shorter now." }),
+		(*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 21}, nil).Once()
 	notifier.EXPECT().Replace(mock.Anything, "member-1", mock.Anything, replacedPreview).Return(nil).Maybe()
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
@@ -76,7 +79,7 @@ func TestEditCanClearTheStoredFirstComment(t *testing.T) {
 			return n.FirstComment == "" && n.Note == "Edited: removed the booking link"
 		},
 		func(m telegramDomain.OutgoingMessage) bool {
-			return !strings.Contains(m.Text, firstCommentBlock) && !strings.Contains(m.Text, "lumen.observer") && len(m.Buttons) == 2
+			return !strings.Contains(m.Text, firstCommentBlock) && !strings.Contains(m.Text, "lumen.observer") && len(m.Buttons) == 0 // no Copy button
 		})
 
 	_, err := story.NotifyDraft(context.Background(), "member-1", "draft-1", "Edited: removed the booking link", "", true)

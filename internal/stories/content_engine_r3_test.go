@@ -99,7 +99,10 @@ func TestLaterDraftPreviewKeepsTheFirstCommentAndNote(t *testing.T) {
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
 		return strings.Contains(m.Text, "Note: Edited: shorter") && strings.HasSuffix(m.Text, firstCommentBlock+comment)
-	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 21}, nil)
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 19}, nil).Once()
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return !strings.Contains(m.Text, firstCommentBlock)
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 21}, nil).Once()
 	notifier.EXPECT().Replace(mock.Anything, "member-1", int64(20), replacedPreview).Return(nil)
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)

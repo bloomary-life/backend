@@ -553,13 +553,17 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
+		scheduleNext, err := stories.NewScheduleNextCallbacks(store.reviewRepo, store.draftRepo, schedule, comments, notify)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
 		suggestions, err := stories.NewSuggestionCallbacks(store.reviewRepo, userBot)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
 		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, stories.TelegramBotHandlers{
 			VoiceMembers: voiceMembers, NumbersMembers: telegramDomain.NewMemberSet(config.WeeklyNumbersMemberIDs),
-			Replies: []telegramDomain.ReplyHandler{editReplies, trendReplies}, Callbacks: []telegramDomain.CallbackHandler{skips, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
+			Replies: []telegramDomain.ReplyHandler{editReplies, trendReplies}, Callbacks: []telegramDomain.CallbackHandler{skips, scheduleNext, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}

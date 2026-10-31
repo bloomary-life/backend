@@ -131,9 +131,12 @@ func TestDraftPreviewShowsFirstCommentWithCopyAndReplacesTheOlderPreview(t *test
 	reviews.EXPECT().ReplaceNotice(mock.Anything, "member-1", "old").Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
-		return strings.HasSuffix(m.Text, "Proof beats adjectives.\n\nFirst comment (paste under the post after you publish):\n"+comment) &&
-			m.Buttons[1][0] == telegramDomain.Button{Text: "Copy first comment", CopyText: comment}
-	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 20}, nil)
+		return strings.HasSuffix(m.Text, "\n\nFirst comment (paste under the post after you publish):\n"+comment) &&
+			m.Buttons[0][0] == telegramDomain.Button{Text: "Copy first comment", CopyText: comment}
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 19}, nil).Once()
+	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.MatchedBy(func(m telegramDomain.OutgoingMessage) bool {
+		return m.Text == "Proof beats adjectives."
+	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 20}, nil).Once()
 	notifier.EXPECT().Replace(mock.Anything, "member-1", int64(11), replacedPreview).Return(nil)
 	story, err := NewNotifyScheduled(proAccess(t), drafts, scheduleMocks.NewMockRepository(t), reviews, nil, notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
