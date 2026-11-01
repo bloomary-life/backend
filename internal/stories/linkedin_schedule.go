@@ -39,7 +39,8 @@ func (s *linkedInScheduleStory) OnPublished(hook scheduleDomain.PublishedHook) {
 	s.published = hook
 }
 
-const scheduleMinAhead = 5 * time.Minute
+// scheduleGrace lets "now" through when it is a few seconds old by the time it arrives; the worker posts it on its next tick.
+const scheduleGrace = time.Minute
 
 func NewLinkedInScheduleStory(jobs scheduleDomain.Repository, accounts accountDomain.Repository, drafts draftDomain.Repository, objects draftDomain.ObjectStore, access entitlementDomain.AccessStory, linkedin linkedinDomain.Gate, posts linkedinDomain.LinkedInPostStory, interval time.Duration, maxAheadDays int, notifications ...notificationDomain.Service) (scheduleDomain.Story, error) {
 	if jobs == nil || accounts == nil || drafts == nil || objects == nil || access == nil || linkedin == nil || posts == nil {
@@ -68,8 +69,8 @@ func (s *linkedInScheduleStory) Schedule(ctx context.Context, in scheduleDomain.
 		return scheduleDomain.Post{}, scheduleDomain.ErrProRequired
 	}
 	in.ScheduledAt = in.ScheduledAt.UTC()
-	if in.ScheduledAt.Before(now.Add(scheduleMinAhead)) || in.ScheduledAt.After(now.Add(s.maxAhead)) {
-		return scheduleDomain.Post{}, fmt.Errorf("scheduled time must be between 5 minutes and %d days from now", s.maxAheadDays)
+	if in.ScheduledAt.Before(now.Add(-scheduleGrace)) || in.ScheduledAt.After(now.Add(s.maxAhead)) {
+		return scheduleDomain.Post{}, fmt.Errorf("scheduled time must be between now and %d days from now", s.maxAheadDays)
 	}
 	draft, err := s.drafts.ByID(ctx, in.MemberID, in.DraftID)
 	if err != nil {

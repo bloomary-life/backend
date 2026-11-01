@@ -16,17 +16,18 @@ import (
 
 const scheduleNextPrefix = "sn:"
 
-// postSlots are the web app's best posting times (platform/app.js weekdayPostTimes, start of each window),
-// indexed by time.Weekday, in Europe/Nicosia.
-var postSlots = [7]int{10, 9, 10, 9, 10, 9, 10}
-
-const (
-	slotLead       = 30 * time.Minute
-	slotSearchDays = 14
+// postSlots and postSlotEnds are the web app's best posting windows (platform/app.js weekdayPostTimes), start and
+// end hour, indexed by time.Weekday, in Europe/Nicosia.
+var (
+	postSlots    = [7]int{10, 9, 10, 9, 10, 9, 10}
+	postSlotEnds = [7]int{12, 11, 12, 11, 12, 10, 12}
 )
 
-// nextPostSlot is the earliest posting slot at least 30 minutes after now on a Cyprus day with no other
-// pending or retry post of the member (BE-025). If every day of the next two weeks is taken, the last slot looked at.
+const slotSearchDays = 14
+
+// nextPostSlot is the earliest moment in a posting window from now on, on a Cyprus day with no other pending or
+// retry post of the member (BE-025): inside today's open window that is now. If every day
+// of the next two weeks is taken, the last slot looked at.
 func nextPostSlot(now time.Time, active []scheduledDomain.Post) time.Time {
 	taken := map[string]bool{}
 	for _, job := range active {
@@ -39,7 +40,11 @@ func nextPostSlot(now time.Time, active []scheduledDomain.Post) time.Time {
 	for d := 0; d <= slotSearchDays; d++ {
 		day := time.Date(local.Year(), local.Month(), local.Day()+d, 0, 0, 0, 0, postTimeZone)
 		slot = time.Date(day.Year(), day.Month(), day.Day(), postSlots[day.Weekday()], 0, 0, 0, postTimeZone)
-		if slot.Before(now.Add(slotLead)) || taken[day.Format("2006-01-02")] {
+		end := time.Date(day.Year(), day.Month(), day.Day(), postSlotEnds[day.Weekday()], 0, 0, 0, postTimeZone)
+		if slot.Before(now) {
+			slot = now
+		}
+		if !slot.Before(end) || taken[day.Format("2006-01-02")] {
 			continue
 		}
 		return slot

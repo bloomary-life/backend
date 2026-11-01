@@ -34,10 +34,21 @@ func TestNextPostSlotUsesTheWeekdayTable(t *testing.T) {
 	require.Equal(t, cyprus(2026, 11, 1, 10, 0), nextPostSlot(cyprus(2026, 10, 31, 18, 0), cancelled).In(postTimeZone))
 }
 
-func TestNextPostSlotKeepsThirtyMinutesLead(t *testing.T) {
+func TestNextPostSlotInsideTodaysOpenWindowIsNow(t *testing.T) {
 	// Verifies: BE-025
-	require.Equal(t, cyprus(2026, 11, 2, 9, 0), nextPostSlot(cyprus(2026, 11, 2, 8, 29), nil).In(postTimeZone))
-	require.Equal(t, cyprus(2026, 11, 3, 10, 0), nextPostSlot(cyprus(2026, 11, 2, 8, 45), nil).In(postTimeZone))
+	// Before the window: its start. Sunday window 10:00–12:00.
+	require.Equal(t, cyprus(2026, 11, 1, 10, 0), nextPostSlot(cyprus(2026, 11, 1, 9, 47), nil).In(postTimeZone))
+	// Inside the window: now.
+	require.Equal(t, cyprus(2026, 11, 1, 10, 30), nextPostSlot(cyprus(2026, 11, 1, 10, 30), nil).In(postTimeZone))
+	require.Equal(t, cyprus(2026, 11, 1, 11, 59), nextPostSlot(cyprus(2026, 11, 1, 11, 59), nil).In(postTimeZone))
+	// Window over: the next day's window (Mon 09:00).
+	require.Equal(t, cyprus(2026, 11, 2, 9, 0), nextPostSlot(cyprus(2026, 11, 1, 12, 0), nil).In(postTimeZone))
+	// Friday's window ends at 10:00.
+	require.Equal(t, cyprus(2026, 11, 6, 9, 40), nextPostSlot(cyprus(2026, 11, 6, 9, 40), nil).In(postTimeZone))
+	require.Equal(t, cyprus(2026, 11, 7, 10, 0), nextPostSlot(cyprus(2026, 11, 6, 10, 0), nil).In(postTimeZone))
+	// Today already has a post: the next free day.
+	taken := []scheduledDomain.Post{{DraftID: "other", Status: scheduledDomain.Pending, ScheduledAt: cyprus(2026, 11, 1, 18, 0).UTC()}}
+	require.Equal(t, cyprus(2026, 11, 2, 9, 0), nextPostSlot(cyprus(2026, 11, 1, 10, 30), taken).In(postTimeZone))
 }
 
 func TestNextPostSlotAcrossTheClockChange(t *testing.T) {
