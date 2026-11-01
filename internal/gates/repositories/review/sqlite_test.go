@@ -110,6 +110,48 @@ func TestEditRequestIsFoundByPreviewMessageAndAppliedOnce(t *testing.T) {
 	require.Equal(t, "Shorter, drop the last line", all[0].Text)
 }
 
+func TestSuggestionApprovalIsKeptAndEndsWhenPosted(t *testing.T) {
+	// Verifies: BE-027
+	repo := newRepo(t)
+	ctx := context.Background()
+	first := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	require.NoError(t, repo.CreateSuggestion(ctx, reviewDomain.Suggestion{ID: "s-1", MemberID: "member-1", Kind: reviewDomain.KindComment, TargetURL: "https://www.linkedin.com/posts/x", Text: "Good point", CreatedAt: first}))
+
+	approved, err := repo.ApproveSuggestion(ctx, "member-1", "s-1", first)
+	require.NoError(t, err)
+	require.Equal(t, first, *approved.ApprovedAt)
+	again, err := repo.ApproveSuggestion(ctx, "member-1", "s-1", first.Add(time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, first, *again.ApprovedAt)
+	_, err = repo.MarkSuggestionPosted(ctx, "member-1", "s-1", first.Add(time.Hour))
+	require.NoError(t, err)
+	_, err = repo.ApproveSuggestion(ctx, "member-1", "s-1", first.Add(2*time.Hour))
+	require.ErrorIs(t, err, reviewDomain.ErrNotFound)
+	list, err := repo.ListSuggestions(ctx, "member-1", first.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, first, *list[0].ApprovedAt)
+	require.NotNil(t, list[0].PostedAt)
+}
+
+func TestNewSQLiteRepositoryAddsApprovedAtOnce(t *testing.T) {
+	// Verifies: BE-027
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	_, err = db.Exec(`CREATE TABLE comment_suggestions (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, kind TEXT NOT NULL, target_url TEXT NOT NULL,
+		body TEXT NOT NULL, context TEXT NOT NULL DEFAULT '', rating INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, rated_at TEXT, posted_at TEXT)`)
+	require.NoError(t, err)
+
+	_, err = NewSQLiteRepository(db)
+	require.NoError(t, err)
+	_, err = NewSQLiteRepository(db)
+	require.NoError(t, err)
+	var columns int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('comment_suggestions') WHERE name='approved_at'`).Scan(&columns))
+	require.Equal(t, 1, columns)
+}
+
 func TestNewSQLiteRepositoryAddsMessageIDOnce(t *testing.T) {
 	// Verifies: BE-017
 	db, err := sql.Open("sqlite", ":memory:")

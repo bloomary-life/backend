@@ -26,6 +26,8 @@ type Repository interface {
 	CreateSuggestion(ctx context.Context, suggestion Suggestion) error
 	RateSuggestion(ctx context.Context, memberID, id string, rating int, at time.Time) error
 	MarkSuggestionPosted(ctx context.Context, memberID, id string, at time.Time) (Suggestion, error)
+	// ApproveSuggestion sets approved_at once on a comment suggestion that is not posted; ErrNotFound otherwise.
+	ApproveSuggestion(ctx context.Context, memberID, id string, at time.Time) (Suggestion, error)
 	ListSuggestions(ctx context.Context, memberID string, since time.Time) ([]Suggestion, error)
 	CountSuggestionsSince(ctx context.Context, memberID string, since time.Time) (int, error)
 	SetSuggestionMessage(ctx context.Context, memberID, id string, messageID int64) error
@@ -64,6 +66,8 @@ type FirstCommentStory interface {
 
 type SendSuggestionStory interface {
 	Send(ctx context.Context, input SuggestionInput) (Suggestion, error)
+	// MarkPosted marks a comment suggestion posted (as the Posted button does) and marks its Telegram message.
+	MarkPosted(ctx context.Context, memberID, id string) (Suggestion, error)
 }
 
 type ListFeedbackStory interface {

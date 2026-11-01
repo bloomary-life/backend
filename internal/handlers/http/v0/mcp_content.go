@@ -123,6 +123,13 @@ type mcpSuggestionFeedback struct {
 	CreatedAt    string `json:"createdAt"`
 	Rating       int    `json:"rating,omitempty"`
 	Posted       bool   `json:"posted"`
+	// Approved: the member tapped Post it, so the AI app may post the comment for them (then mark_suggestion_posted).
+	Approved   bool   `json:"approved"`
+	ApprovedAt string `json:"approvedAt,omitempty"`
+}
+
+type mcpMarkSuggestionPostedInput struct {
+	SuggestionID string `json:"suggestion_id" jsonschema:"suggestionId of a comment suggestion from list_feedback"`
 }
 
 type mcpFeedback struct {
@@ -332,7 +339,22 @@ func (s *service) addMCPReviewTools(server *mcp.Server) {
 			}
 			return nil, mcpSuggestionSent{SuggestionID: suggestion.ID, CopyButton: len([]rune(suggestion.Text)) <= reviewDomain.CopyTextLimit}, nil
 		})
-	mcp.AddTool(server, mcpOAuthTool("list_feedback", "List notified posts with their outcome (scheduled, published, skipped, failed) and the member's edits as a word diff, plus comment suggestion ratings and posted flags.", "insights:read"),
+	mcp.AddTool(server, mcpOAuthTool("mark_suggestion_posted", "Mark a comment suggestion posted after posting it on LinkedIn for the member (they approved it with Post it); its Telegram message shows ✅ Posted.", "insights:write"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpMarkSuggestionPostedInput) (*mcp.CallToolResult, mcpSuggestionFeedback, error) {
+			memberID, err := s.mcpMemberWithScope(ctx, "insights:write")
+			if err != nil {
+				return nil, mcpSuggestionFeedback{}, err
+			}
+			if s.sendSuggestionStory == nil {
+				return nil, mcpSuggestionFeedback{}, errors.New("the Bloomary Telegram bot is not configured")
+			}
+			suggestion, err := s.sendSuggestionStory.MarkPosted(ctx, memberID, input.SuggestionID)
+			if err != nil {
+				return nil, mcpSuggestionFeedback{}, err
+			}
+			return nil, toMCPFeedback(reviewDomain.Feedback{Suggestions: []reviewDomain.Suggestion{suggestion}}).Suggestions[0], nil
+		})
+	mcp.AddTool(server, mcpOAuthTool("list_feedback", "List notified posts with their outcome (scheduled, published, skipped, failed) and the member's edits as a word diff, plus comment suggestion ratings, approved (Post it tapped) and posted flags.", "insights:read"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, input mcpListFeedbackInput) (*mcp.CallToolResult, mcpFeedback, error) {
 			memberID, err := s.mcpMemberWithScope(ctx, "insights:read")
 			if err != nil {
@@ -372,8 +394,12 @@ func toMCPFeedback(feedback reviewDomain.Feedback) mcpFeedback {
 		out.Posts = append(out.Posts, item)
 	}
 	for _, sg := range feedback.Suggestions {
-		out.Suggestions = append(out.Suggestions, mcpSuggestionFeedback{SuggestionID: sg.ID, Kind: sg.Kind, TargetURL: sg.TargetURL, Text: sg.Text,
-			Context: sg.Context, CreatedAt: sg.CreatedAt.UTC().Format(time.RFC3339), Rating: sg.Rating, Posted: sg.PostedAt != nil})
+		item := mcpSuggestionFeedback{SuggestionID: sg.ID, Kind: sg.Kind, TargetURL: sg.TargetURL, Text: sg.Text,
+			Context: sg.Context, CreatedAt: sg.CreatedAt.UTC().Format(time.RFC3339), Rating: sg.Rating, Posted: sg.PostedAt != nil, Approved: sg.ApprovedAt != nil}
+		if sg.ApprovedAt != nil {
+			item.ApprovedAt = sg.ApprovedAt.UTC().Format(time.RFC3339)
+		}
+		out.Suggestions = append(out.Suggestions, item)
 	}
 	return out
 }

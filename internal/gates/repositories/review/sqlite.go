@@ -12,7 +12,7 @@ import (
 
 const (
 	noticeColumns     = `id,member_id,draft_id,schedule_id,proposed_text,note,status,scheduled_at,created_at,COALESCE(skipped_at,''),message_id,photo_message_id,requested,first_comment`
-	suggestionColumns = `id,member_id,kind,target_url,body,context,rating,created_at,COALESCE(rated_at,''),COALESCE(posted_at,''),message_id`
+	suggestionColumns = `id,member_id,kind,target_url,body,context,rating,created_at,COALESCE(rated_at,''),COALESCE(posted_at,''),message_id,COALESCE(approved_at,'')`
 	editColumns       = `id,member_id,draft_id,notice_id,body,source,created_at,COALESCE(applied_at,'')`
 )
 
@@ -54,6 +54,9 @@ func NewSQLiteRepository(db *sql.DB) (*SQLiteRepository, error) {
 		}
 	}
 	if err := addIntColumn(db, "comment_suggestions", "message_id"); err != nil {
+		return nil, err
+	}
+	if err := addColumn(db, "comment_suggestions", "approved_at", "TEXT"); err != nil {
 		return nil, err
 	}
 	if err := addColumn(db, "scheduled_post_notices", "first_comment", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -243,6 +246,16 @@ func (r *SQLiteRepository) MarkSuggestionPosted(ctx context.Context, memberID, i
 	return s, err
 }
 
+func (r *SQLiteRepository) ApproveSuggestion(ctx context.Context, memberID, id string, at time.Time) (reviewDomain.Suggestion, error) {
+	s, err := scanSuggestion(r.db.QueryRowContext(ctx, `UPDATE comment_suggestions SET approved_at=COALESCE(approved_at,?)
+		WHERE member_id=? AND id=? AND kind=? AND posted_at IS NULL RETURNING `+suggestionColumns, formatTime(at), memberID, id, reviewDomain.KindComment))
+	if errors.Is(err, sql.ErrNoRows) {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrNotFound
+	}
+
+	return s, err
+}
+
 func (r *SQLiteRepository) ListSuggestions(ctx context.Context, memberID string, since time.Time) ([]reviewDomain.Suggestion, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+suggestionColumns+` FROM comment_suggestions WHERE member_id=? AND created_at>=? ORDER BY created_at DESC LIMIT 500`, memberID, formatTime(since))
 	if err != nil {
@@ -382,8 +395,8 @@ func scanNotice(row scanner) (reviewDomain.Notice, error) {
 
 func scanSuggestion(row scanner) (reviewDomain.Suggestion, error) {
 	var s reviewDomain.Suggestion
-	var createdAt, ratedAt, postedAt string
-	err := row.Scan(&s.ID, &s.MemberID, &s.Kind, &s.TargetURL, &s.Text, &s.Context, &s.Rating, &createdAt, &ratedAt, &postedAt, &s.MessageID)
+	var createdAt, ratedAt, postedAt, approvedAt string
+	err := row.Scan(&s.ID, &s.MemberID, &s.Kind, &s.TargetURL, &s.Text, &s.Context, &s.Rating, &createdAt, &ratedAt, &postedAt, &s.MessageID, &approvedAt)
 	if err != nil {
 		return reviewDomain.Suggestion{}, err
 	}
@@ -396,7 +409,11 @@ func scanSuggestion(row scanner) (reviewDomain.Suggestion, error) {
 		return reviewDomain.Suggestion{}, err
 	}
 
-	s.PostedAt, err = optionalTime(postedAt)
+	if s.PostedAt, err = optionalTime(postedAt); err != nil {
+		return reviewDomain.Suggestion{}, err
+	}
+
+	s.ApprovedAt, err = optionalTime(approvedAt)
 	return s, err
 }
 

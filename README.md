@@ -17,7 +17,7 @@ go test ./...
 | 1 | `BLOOMARY_APP_TOKEN`, `BLOOMARY_USER_BOT_WEBHOOK_SECRET`, `BLOOMARY_USER_BOT_USERNAME` (default `bloomary_app`) | Telegram bot (`POST /api/telegram/webhook`): post ideas (insights), previews with Skip or Discard, edit requests by reply, comment ideas, trend messages, first comments when a scheduled post publishes; off while the token is empty |
 | 2 | `DEEPGRAM_API_KEY` | Voice notes to the bot are transcribed (audio is never stored; 20 notes or 60 minutes per member per day) |
 
-MCP tools (`/mcp`): `list_drafts`, `get_draft`, `create_draft`, `update_draft`, `attach_image`, `schedule_draft`, `notify_scheduled`, `notify_draft`, `list_edit_requests`, `mark_edit_applied`, `list_insights`, `mark_insight_used`, `send_suggestion`, `list_feedback`. Scopes: `drafts:read`, `drafts:write`, `insights:read`, `insights:write`. Drafts written through MCP may not contain links. Behaviour of each tool: `REQUIREMENTS.md` (BE-008…BE-024).
+MCP tools (`/mcp`): `list_drafts`, `get_draft`, `create_draft`, `update_draft`, `attach_image`, `schedule_draft`, `notify_scheduled`, `notify_draft`, `list_edit_requests`, `mark_edit_applied`, `list_insights`, `mark_insight_used`, `send_suggestion`, `list_feedback`, `mark_suggestion_posted`. Scopes: `drafts:read`, `drafts:write`, `insights:read`, `insights:write`. Drafts written through MCP may not contain links. Behaviour of each tool: `REQUIREMENTS.md` (BE-008…BE-028).
 
 ## Contributing
 

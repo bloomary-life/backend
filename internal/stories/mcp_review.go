@@ -344,7 +344,7 @@ func (s *SkipCallbacks) HandleCallback(ctx context.Context, link telegramDomain.
 	return result, nil
 }
 
-// SendSuggestion sends a comment idea with Open post, Copy, rating 1-5 and Posted buttons.
+// SendSuggestion sends a comment idea with Open post, Copy, rating 1-5, Post it and Posted buttons.
 type SendSuggestion struct {
 	access   entitlementDomain.AccessStory
 	reviews  reviewDomain.Repository
@@ -413,15 +413,50 @@ func (s *SendSuggestion) Send(ctx context.Context, in reviewDomain.SuggestionInp
 		body += suggestionRateLine
 	}
 	message := telegramDomain.OutgoingMessage{Text: body, Silent: in.Silent, Buttons: [][]telegramDomain.Button{
-		first, ratings, {{Text: "Posted", CallbackData: "sg:" + id + ":p"}},
+		first, ratings, {{Text: "✅ Post it", CallbackData: "sg:" + id + ":a"}, {Text: "Posted", CallbackData: "sg:" + id + ":p"}},
 	}}
-	if _, err := s.notifier.Notify(ctx, in.MemberID, message, nil); err != nil {
+	sent, err := s.notifier.Notify(ctx, in.MemberID, message, nil)
+	if err != nil {
 		if errors.Is(err, telegramDomain.ErrNotLinked) {
 			return reviewDomain.Suggestion{}, reviewDomain.ErrNotLinked
 		}
 		return reviewDomain.Suggestion{}, fmt.Errorf("send Telegram suggestion: %w", err)
 	}
+	// The message ID lets mark_suggestion_posted mark the message; the idea is already sent, so a failure only logs.
+	if err := s.reviews.SetSuggestionMessage(ctx, in.MemberID, id, sent.MessageID); err != nil {
+		logger.FromContext(ctx).WithError(err).Info("suggestion_message_save_failed")
+	}
+	suggestion.MessageID = sent.MessageID
 	return suggestion, nil
+}
+
+// MarkPosted marks a comment suggestion posted for the AI app that posted it (mark_suggestion_posted) and marks its
+// Telegram message as the Posted button does.
+func (s *SendSuggestion) MarkPosted(ctx context.Context, memberID, id string) (reviewDomain.Suggestion, error) {
+	if _, err := requireMCPPaid(ctx, s.access, memberID); err != nil {
+		return reviewDomain.Suggestion{}, err
+	}
+	suggestion, err := s.reviews.SuggestionByID(ctx, memberID, strings.TrimSpace(id))
+	if err != nil {
+		return reviewDomain.Suggestion{}, err
+	}
+	if suggestion.Kind != reviewDomain.KindComment {
+		return reviewDomain.Suggestion{}, reviewDomain.ErrNotFound
+	}
+	suggestion, err = s.reviews.MarkSuggestionPosted(ctx, memberID, suggestion.ID, time.Now().UTC())
+	if err != nil {
+		return reviewDomain.Suggestion{}, err
+	}
+	if suggestion.MessageID != 0 {
+		if err := s.notifier.Replace(ctx, memberID, suggestion.MessageID, postedText(suggestion)); err != nil {
+			logger.FromContext(ctx).WithError(err).Info("telegram_edit_suggestion_failed")
+		}
+	}
+	return suggestion, nil
+}
+
+func postedText(s reviewDomain.Suggestion) string {
+	return fitTelegram("✅ Posted\n\n", suggestionText(s), "")
 }
 
 const trendFooter = "\n\nReply to this message (voice or text) with your take and it becomes a post draft."
@@ -444,7 +479,7 @@ func (s *SendSuggestion) sendTrend(ctx context.Context, suggestion reviewDomain.
 	return suggestion, nil
 }
 
-const suggestionRateLine = "\n\nRate this comment idea 1 (unusable) to 5 (good as is). Tap Posted once it's on LinkedIn."
+const suggestionRateLine = "\n\nRate this comment idea 1 (unusable) to 5 (good as is). Tap ✅ Post it to have it posted from your browser, or Posted once you posted it yourself."
 
 // suggestionText is the comment idea message without the rating line.
 func suggestionText(s reviewDomain.Suggestion) string {
@@ -455,7 +490,8 @@ func suggestionText(s reviewDomain.Suggestion) string {
 	return fitTelegram(head+"\n\n", s.Text, "")
 }
 
-// SuggestionCallbacks stores a rating ("sg:<id>:1".."5") or the posted flag ("sg:<id>:p"); Posted marks the message.
+// SuggestionCallbacks stores a rating ("sg:<id>:1".."5"), the approval to post it ("sg:<id>:a", refused once posted)
+// or the posted flag ("sg:<id>:p"); Posted marks the message.
 type SuggestionCallbacks struct {
 	reviews reviewDomain.Repository
 	bot     telegramDomain.Gate
@@ -483,10 +519,19 @@ func (s *SuggestionCallbacks) HandleCallback(ctx context.Context, link telegramD
 		if err != nil {
 			return "This suggestion is no longer active.", nil
 		}
-		if err := s.bot.EditMessageText(ctx, callback.ChatID, callback.MessageID, fitTelegram("✅ Posted\n\n", suggestionText(suggestion), "")); err != nil {
+		if err := s.bot.EditMessageText(ctx, callback.ChatID, callback.MessageID, postedText(suggestion)); err != nil {
 			logger.FromContext(ctx).WithError(err).Info("telegram_edit_suggestion_failed")
 		}
 		return "Marked as posted.", nil
+	}
+	if parts[2] == "a" {
+		if _, err := s.reviews.ApproveSuggestion(ctx, link.MemberID, parts[1], now); err != nil {
+			if existing, lookupErr := s.reviews.SuggestionByID(ctx, link.MemberID, parts[1]); lookupErr == nil && existing.PostedAt != nil {
+				return "Already posted.", nil
+			}
+			return "This suggestion is no longer active.", nil
+		}
+		return "Approved: it will be posted from your browser shortly.", nil
 	}
 	rating, err := strconv.Atoi(parts[2])
 	if err != nil || rating < 1 || rating > 5 {

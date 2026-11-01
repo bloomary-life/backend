@@ -171,8 +171,10 @@ func TestSendSuggestionSendsCopyRatingAndPostedButtons(t *testing.T) {
 		return m.Text == "Comment idea\nThey asked about EU visas\n\nThe Blue Card salary threshold changed this year."+suggestionRateLine &&
 			m.Buttons[0][0] == telegramDomain.Button{Text: "Open post", URL: "https://www.linkedin.com/feed/update/urn:li:activity:1"} &&
 			m.Buttons[0][1] == telegramDomain.Button{Text: "Copy comment", CopyText: "The Blue Card salary threshold changed this year."} &&
-			len(m.Buttons[1]) == 5 && strings.HasSuffix(m.Buttons[1][4].CallbackData, ":5") && strings.HasSuffix(m.Buttons[2][0].CallbackData, ":p")
+			len(m.Buttons[1]) == 5 && strings.HasSuffix(m.Buttons[1][4].CallbackData, ":5") &&
+			m.Buttons[2][0].Text == "✅ Post it" && strings.HasSuffix(m.Buttons[2][0].CallbackData, ":a") && strings.HasSuffix(m.Buttons[2][1].CallbackData, ":p")
 	}), (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 11}, nil)
+	reviews.EXPECT().SetSuggestionMessage(mock.Anything, "member-1", mock.Anything, int64(11)).Return(nil)
 	story, err := NewSendSuggestion(proAccess(t), reviews, notifier)
 	require.NoError(t, err)
 
@@ -181,6 +183,35 @@ func TestSendSuggestionSendsCopyRatingAndPostedButtons(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, suggestion.ID, 32)
+	require.Equal(t, int64(11), suggestion.MessageID)
+}
+
+func TestSuggestionPostItStoresTheApproval(t *testing.T) {
+	// Verifies: BE-027
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().ApproveSuggestion(mock.Anything, "member-1", "s-1", mock.Anything).Return(reviewDomain.Suggestion{ID: "s-1"}, nil)
+	callbacks, err := NewSuggestionCallbacks(reviews, telegramMocks.NewMockGate(t))
+	require.NoError(t, err)
+
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1"}, telegramDomain.Callback{Data: "sg:s-1:a"})
+
+	require.NoError(t, err)
+	require.Equal(t, "Approved: it will be posted from your browser shortly.", answer)
+}
+
+func TestSuggestionPostItIsRefusedOncePosted(t *testing.T) {
+	// Verifies: BE-027
+	posted := time.Now().UTC()
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().ApproveSuggestion(mock.Anything, "member-1", "s-1", mock.Anything).Return(reviewDomain.Suggestion{}, reviewDomain.ErrNotFound)
+	reviews.EXPECT().SuggestionByID(mock.Anything, "member-1", "s-1").Return(reviewDomain.Suggestion{ID: "s-1", PostedAt: &posted}, nil)
+	callbacks, err := NewSuggestionCallbacks(reviews, telegramMocks.NewMockGate(t))
+	require.NoError(t, err)
+
+	answer, err := callbacks.HandleCallback(context.Background(), telegramDomain.Link{MemberID: "member-1"}, telegramDomain.Callback{Data: "sg:s-1:a"})
+
+	require.NoError(t, err)
+	require.Equal(t, "Already posted.", answer)
 }
 
 func TestSuggestionRatingIsStored(t *testing.T) {

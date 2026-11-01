@@ -206,6 +206,7 @@ func TestMCPSendSuggestionReportsCopyButton(t *testing.T) {
 	reviews.EXPECT().CreateSuggestion(mock.Anything, mock.Anything).Return(nil)
 	notifier := telegramMocks.NewMockNotifier(t)
 	notifier.EXPECT().Notify(mock.Anything, "member-1", mock.Anything, (*telegramDomain.Photo)(nil)).Return(telegramDomain.Delivery{MessageID: 1}, nil)
+	reviews.EXPECT().SetSuggestionMessage(mock.Anything, "member-1", mock.Anything, int64(1)).Return(nil)
 	send, err := stories.NewSendSuggestion(paidAccess(t), reviews, notifier)
 	require.NoError(t, err)
 	svc := newMCPTestService(t, &service{sendSuggestionStory: send})
@@ -243,6 +244,50 @@ func TestMCPListFeedbackReturnsOutcomesDiffAndRatings(t *testing.T) {
 	require.Equal(t, mcpPostFeedback{NoticeID: "n-1", DraftID: "draft-1", Status: "published", PublishAt: "2026-10-30T09:00:00Z", NotifiedAt: "2026-10-30T09:00:00Z",
 		ProposedText: "Hiring is hard", FinalText: "Hiring is slow", Diff: "Hiring is [-hard-]{+slow+}", Edited: true}, out.Posts[0])
 	require.Equal(t, mcpSuggestionFeedback{SuggestionID: "s-1", Kind: "comment", TargetURL: "https://x.test/p", Text: "Nice", CreatedAt: "2026-10-30T09:00:00Z", Rating: 4, Posted: true}, out.Suggestions[0])
+}
+
+func TestMCPListFeedbackReportsApprovedSuggestions(t *testing.T) {
+	// Verifies: BE-027
+	created := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	approved := created.Add(time.Minute)
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().ListNotices(mock.Anything, "member-1", mock.Anything).Return(nil, nil)
+	reviews.EXPECT().ListSuggestions(mock.Anything, "member-1", mock.Anything).Return([]reviewDomain.Suggestion{{ID: "s-1", Kind: "comment",
+		TargetURL: "https://www.linkedin.com/posts/a_b-activity-1", Text: "Good point", CreatedAt: created, ApprovedAt: &approved}}, nil)
+	list, err := stories.NewListFeedback(paidAccess(t), reviews, draftMocks.NewMockRepository(t), scheduleMocks.NewMockRepository(t))
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{listFeedbackStory: list})
+
+	result := callMCPTool(t, svc, []string{"insights:read"}, "list_feedback", map[string]any{})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+	var out mcpFeedback
+	require.NoError(t, json.Unmarshal(result.Result.StructuredContent, &out))
+	require.Equal(t, mcpSuggestionFeedback{SuggestionID: "s-1", Kind: "comment", TargetURL: "https://www.linkedin.com/posts/a_b-activity-1", Text: "Good point",
+		CreatedAt: "2026-11-01T09:00:00Z", Approved: true, ApprovedAt: "2026-11-01T09:01:00Z"}, out.Suggestions[0])
+}
+
+func TestMCPMarkSuggestionPostedMarksItAndItsMessage(t *testing.T) {
+	// Verifies: BE-028
+	now := time.Now().UTC()
+	reviews := reviewMocks.NewMockRepository(t)
+	reviews.EXPECT().SuggestionByID(mock.Anything, "member-1", "s-1").Return(reviewDomain.Suggestion{ID: "s-1", Kind: "comment"}, nil)
+	reviews.EXPECT().MarkSuggestionPosted(mock.Anything, "member-1", "s-1", mock.Anything).Return(reviewDomain.Suggestion{ID: "s-1", Kind: "comment",
+		Text: "Good point", Context: "Visas", MessageID: 9, CreatedAt: now, ApprovedAt: &now, PostedAt: &now}, nil)
+	notifier := telegramMocks.NewMockNotifier(t)
+	notifier.EXPECT().Replace(mock.Anything, "member-1", int64(9), "✅ Posted\n\nComment idea\nVisas\n\nGood point").Return(nil)
+	send, err := stories.NewSendSuggestion(paidAccess(t), reviews, notifier)
+	require.NoError(t, err)
+	svc := newMCPTestService(t, &service{sendSuggestionStory: send})
+
+	result := callMCPTool(t, svc, []string{"insights:write"}, "mark_suggestion_posted", map[string]any{"suggestion_id": "s-1"})
+
+	require.False(t, result.Result.IsError, result.Result.Content)
+	var out mcpSuggestionFeedback
+	require.NoError(t, json.Unmarshal(result.Result.StructuredContent, &out))
+	require.True(t, out.Posted)
+	require.True(t, out.Approved)
+	require.Equal(t, "s-1", out.SuggestionID)
 }
 
 func TestMCPListEditRequestsAndMarkEditApplied(t *testing.T) {

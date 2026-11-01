@@ -48,6 +48,84 @@ func (_m *MockRepository) EXPECT() *MockRepository_Expecter {
 	return &MockRepository_Expecter{mock: &_m.Mock}
 }
 
+// ApproveSuggestion provides a mock function for the type MockRepository
+func (_mock *MockRepository) ApproveSuggestion(ctx context.Context, memberID string, id string, at time.Time) (review.Suggestion, error) {
+	ret := _mock.Called(ctx, memberID, id, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ApproveSuggestion")
+	}
+
+	var r0 review.Suggestion
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) (review.Suggestion, error)); ok {
+		return returnFunc(ctx, memberID, id, at)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, time.Time) review.Suggestion); ok {
+		r0 = returnFunc(ctx, memberID, id, at)
+	} else {
+		r0 = ret.Get(0).(review.Suggestion)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, time.Time) error); ok {
+		r1 = returnFunc(ctx, memberID, id, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockRepository_ApproveSuggestion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApproveSuggestion'
+type MockRepository_ApproveSuggestion_Call struct {
+	*mock.Call
+}
+
+// ApproveSuggestion is a helper method to define mock.On call
+//   - ctx context.Context
+//   - memberID string
+//   - id string
+//   - at time.Time
+func (_e *MockRepository_Expecter) ApproveSuggestion(ctx any, memberID any, id any, at any) *MockRepository_ApproveSuggestion_Call {
+	return &MockRepository_ApproveSuggestion_Call{Call: _e.mock.On("ApproveSuggestion", ctx, memberID, id, at)}
+}
+
+func (_c *MockRepository_ApproveSuggestion_Call) Run(run func(ctx context.Context, memberID string, id string, at time.Time)) *MockRepository_ApproveSuggestion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		var arg3 time.Time
+		if args[3] != nil {
+			arg3 = args[3].(time.Time)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockRepository_ApproveSuggestion_Call) Return(suggestion review.Suggestion, err error) *MockRepository_ApproveSuggestion_Call {
+	_c.Call.Return(suggestion, err)
+	return _c
+}
+
+func (_c *MockRepository_ApproveSuggestion_Call) RunAndReturn(run func(ctx context.Context, memberID string, id string, at time.Time) (review.Suggestion, error)) *MockRepository_ApproveSuggestion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CountEditRequestsSince provides a mock function for the type MockRepository
 func (_mock *MockRepository) CountEditRequestsSince(ctx context.Context, memberID string, since time.Time) (int, error) {
 	ret := _mock.Called(ctx, memberID, since)

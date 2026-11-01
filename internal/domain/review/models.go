@@ -100,13 +100,15 @@ type Suggestion struct {
 	CreatedAt time.Time
 	RatedAt   *time.Time
 	PostedAt  *time.Time
-	ID        string
-	MemberID  string
-	Kind      string
-	TargetURL string
-	Text      string
-	Context   string
-	Rating    int
+	// ApprovedAt is when the member tapped Post it: the AI app may post the comment for them.
+	ApprovedAt *time.Time
+	ID         string
+	MemberID   string
+	Kind       string
+	TargetURL  string
+	Text       string
+	Context    string
+	Rating     int
 	// MessageID is the Telegram message of the suggestion; a reply to a trend message becomes an insight.
 	MessageID int64
 }
