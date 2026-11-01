@@ -50,3 +50,47 @@ func verifiedTransaction(memberID string, now time.Time) appleiapDomain.Verified
 		EventOccurredAt:       now,
 	}
 }
+
+func TestAppleTransactionSyncMovesSandboxSubscriptionToSyncingMember(t *testing.T) {
+	// Verifies: BE-030
+	now := time.Now().UTC()
+	verifier := appleiapMocks.NewMockTransactionVerifier(t)
+	repo := appleiapMocks.NewMockEntitlementRepository(t)
+	transaction := verifiedTransaction("member-1", now.Add(-time.Hour))
+	verifier.On("VerifyTransaction", mock.Anything, "signed-jws", mock.AnythingOfType("time.Time")).
+		Return(transaction, nil)
+	repo.On("Apply", mock.Anything, mock.MatchedBy(func(update appleiapDomain.EntitlementUpdate) bool {
+		return update.MemberID == AppleReviewDemoMemberID &&
+			update.AppAccountToken == transaction.AppAccountToken &&
+			update.EventOccurredAt.After(transaction.EventOccurredAt)
+	})).Return(true, nil)
+	story, err := NewAppleTransactionSync(verifier, repo)
+	require.NoError(t, err)
+
+	result, err := story.SyncTransaction(context.Background(), appleiapDomain.SyncTransactionInput{
+		MemberID: AppleReviewDemoMemberID, SignedTransaction: "signed-jws",
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.IsPro)
+}
+
+func TestAppleTransactionSyncRejectsProductionSubscriptionOfAnotherMember(t *testing.T) {
+	// Verifies: BE-030
+	now := time.Now().UTC()
+	verifier := appleiapMocks.NewMockTransactionVerifier(t)
+	repo := appleiapMocks.NewMockEntitlementRepository(t)
+	transaction := verifiedTransaction("member-1", now)
+	transaction.Environment = "Production"
+	verifier.On("VerifyTransaction", mock.Anything, "signed-jws", mock.AnythingOfType("time.Time")).
+		Return(transaction, nil)
+	story, err := NewAppleTransactionSync(verifier, repo)
+	require.NoError(t, err)
+
+	_, err = story.SyncTransaction(context.Background(), appleiapDomain.SyncTransactionInput{
+		MemberID: "member-2", SignedTransaction: "signed-jws",
+	})
+
+	require.ErrorIs(t, err, appleiapDomain.ErrLinkedToOtherMember)
+	repo.AssertNotCalled(t, "Apply", mock.Anything, mock.Anything)
+}

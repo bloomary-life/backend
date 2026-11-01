@@ -57,6 +57,23 @@ func TestAppleTransactionSyncHandlerRejectsInvalidTransaction(t *testing.T) {
 	require.Contains(t, response.Body.String(), "invalid_apple_transaction")
 }
 
+func TestAppleTransactionSyncHandlerExplainsSubscriptionOfAnotherMember(t *testing.T) {
+	// Verifies: BE-030
+	linkedIn := linkedinMocks.NewMockGate(t)
+	story := appleiapMocks.NewMockTransactionSyncStory(t)
+	linkedIn.On("UserInfo", mock.Anything, "access-token").
+		Return(linkedinDomain.Profile{MemberID: "member-1"}, nil)
+	story.On("SyncTransaction", mock.Anything, mock.Anything).
+		Return(appleiapDomain.SyncResult{}, perror.New(perror.ErrCodeRejected, appleiapDomain.ErrLinkedToOtherMember, "apple app account token mismatch"))
+	service := &service{linkedIn: linkedIn, appleTransactionSync: story}
+
+	response := httptest.NewRecorder()
+	service.AppleTransactionSync(response, jsonRequest(`{"memberId":"member-1","signedTransaction":"jws"}`))
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "linked to another Bloomary account")
+}
+
 func TestAppleTransactionSyncHandlerRequiresLinkedInAuth(t *testing.T) {
 	service := &service{}
 

@@ -1,6 +1,9 @@
 package appleiap
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 type Status string
 
@@ -70,3 +73,6 @@ type SyncResult struct {
 	Entitlement Entitlement
 	IsPro       bool
 }
+
+// ErrLinkedToOtherMember: a production subscription carries another member's app account token.
+var ErrLinkedToOtherMember = errors.New("this Apple Account's subscription is linked to another Bloomary account")

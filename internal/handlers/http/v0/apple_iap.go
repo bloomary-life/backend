@@ -2,6 +2,7 @@ package v0
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -72,6 +73,9 @@ func (s *service) AppleTransactionSync(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusBadRequest
 			code = "invalid_apple_transaction"
 			description = "invalid apple transaction"
+			if errors.Is(err, appleiapDomain.ErrLinkedToOtherMember) {
+				description = "This Apple Account's subscription is linked to another Bloomary account. Sign in with that LinkedIn account to use it."
+			}
 		}
 		logger.SetFields(r.Context(), fields, logger.Err(err)).SetField("outcome", code)
 		writeAPIError(w, status, code, description)

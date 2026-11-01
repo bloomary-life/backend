@@ -46,9 +46,14 @@ func (s *appleTransactionSyncStory) SyncTransaction(
 
 	accountToken := identity.AppAccountTokenFor("linkedin", input.MemberID)
 	if transaction.AppAccountToken != accountToken {
-		return appleiapDomain.SyncResult{}, perror.New(
-			perror.ErrCodeRejected, nil, "apple app account token mismatch",
-		)
+		if transaction.Environment != "Sandbox" {
+			return appleiapDomain.SyncResult{}, perror.New(
+				perror.ErrCodeRejected, appleiapDomain.ErrLinkedToOtherMember, "apple app account token mismatch",
+			)
+		}
+		// BE-030: sandbox (TestFlight, App Review) costs nothing and test Apple Accounts are shared,
+		// so a sandbox subscription moves to the member who synced it; the newer event time lets the row move.
+		transaction.EventOccurredAt = now
 	}
 
 	entitlement := appleiapDomain.Entitlement{AccessUntil: transaction.AccessUntil, Status: transaction.Status}
