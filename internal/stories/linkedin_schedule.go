@@ -79,6 +79,10 @@ func (s *linkedInScheduleStory) Schedule(ctx context.Context, in scheduleDomain.
 	if draft.Status != "draft" {
 		return scheduleDomain.Post{}, fmt.Errorf("only unpublished drafts can be scheduled")
 	}
+	if in.MemberID == AppleReviewDemoMemberID {
+		// BE-029: App Review can schedule on the demo account; publishOne never sends it to LinkedIn.
+		return s.jobs.Schedule(ctx, in)
+	}
 	token, err := s.accounts.ActiveByMemberID(ctx, in.MemberID)
 	if err != nil || token.AccessToken == "" {
 		return scheduleDomain.Post{}, fmt.Errorf("reconnect LinkedIn and update your token before scheduling")
@@ -120,6 +124,10 @@ func (s *linkedInScheduleStory) publishOne(ctx context.Context) bool {
 	job, err := s.jobs.ClaimDue(ctx, time.Now().UTC())
 	if err != nil {
 		return false
+	}
+	if job.MemberID == AppleReviewDemoMemberID {
+		_ = s.update(ctx, job, scheduleDomain.Cancelled, "", "Demo account: scheduled posts are never sent to LinkedIn.")
+		return true
 	}
 	token, err := s.accounts.ActiveByMemberID(ctx, job.MemberID)
 	if err != nil || token.AccessToken == "" || (!token.ExpiresAt.IsZero() && !token.ExpiresAt.After(time.Now())) {

@@ -114,3 +114,26 @@ func TestPublishedPostRunsTheHookWithItsLinkedInID(t *testing.T) {
 	require.Equal(t, "urn:li:share:7", hook.posts[0].LinkedInPostID)
 	require.Equal(t, scheduleDomain.Published, hook.posts[0].Status)
 }
+
+func TestDemoAccountSchedulesWithoutLinkedInAndNeverPosts(t *testing.T) {
+	// Verifies: BE-029
+	access := entitlementMocks.NewMockAccessStory(t)
+	access.EXPECT().Resolve(mock.Anything, AppleReviewDemoMemberID, mock.Anything).
+		Return(entitlementDomain.Entitlement{Tier: entitlementDomain.TierPro}, nil)
+	drafts := draftMocks.NewMockRepository(t)
+	drafts.EXPECT().ByID(mock.Anything, AppleReviewDemoMemberID, "draft-1").Return(draftDomain.Draft{DraftID: "draft-1", Status: "draft"}, nil)
+	jobs := scheduleMocks.NewMockRepository(t)
+	jobs.EXPECT().Schedule(mock.Anything, mock.Anything).Return(scheduleDomain.Post{ID: "job-1", MemberID: AppleReviewDemoMemberID, DraftID: "draft-1"}, nil).Once()
+	due := scheduleDomain.Post{ID: "job-1", MemberID: AppleReviewDemoMemberID, DraftID: "draft-1", Status: scheduleDomain.Processing}
+	jobs.EXPECT().ClaimDue(mock.Anything, mock.Anything).Return(due, nil).Once()
+	jobs.EXPECT().Update(mock.Anything, "job-1", scheduleDomain.Cancelled, "", mock.Anything).Return(nil).Once()
+	// No accounts, LinkedIn gate or post calls are expected: the mocks fail the test if any is made.
+	story, err := NewLinkedInScheduleStory(jobs, accountMocks.NewMockRepository(t), drafts, draftMocks.NewMockObjectStore(t), access, linkedinMocks.NewMockGate(t), linkedinMocks.NewMockLinkedInPostStory(t), time.Minute, 31)
+	require.NoError(t, err)
+
+	post, err := story.Schedule(context.Background(), scheduleDomain.CreateInput{MemberID: AppleReviewDemoMemberID, DraftID: "draft-1", ScheduledAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	require.Equal(t, "job-1", post.ID)
+
+	require.True(t, story.(*linkedInScheduleStory).publishOne(context.Background()))
+}
