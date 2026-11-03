@@ -10,7 +10,7 @@ import (
 	"bloomary-api/internal/platform/logger"
 )
 
-// newCredentialVault loads the keyring when BLOOMARY_CREDENTIALS_KEYRING_FILE is set; nil when it isn't.
+// newCredentialVault loads the keyring when BLOOMARY_KEYRING_PATH is set; nil when it isn't.
 // A set but unreadable or invalid keyring stops the start.
 func newCredentialVault(config platform.Config) (*vaultGate.AESGCMVault, error) {
 	if config.CredentialsKeyringFile == "" {
