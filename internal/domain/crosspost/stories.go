@@ -105,6 +105,9 @@ type ApproveInput struct {
 	PublicationID  string
 	TelegramUserID int64 // recorded in the audit row when approved in Telegram
 	AllNow         bool  // "Approve: all now"; otherwise each delivery keeps its time
+	// LinkedInAt replaces the proposed LinkedIn time (zero = keep it); SkipLinkedIn leaves LinkedIn out.
+	LinkedInAt   time.Time
+	SkipLinkedIn bool
 }
 
 type ApprovePublicationStory interface {
