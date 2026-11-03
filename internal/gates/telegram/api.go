@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"time"
 
 	telegramDomain "bloomary-api/internal/domain/telegram"
 	"bloomary-api/internal/platform/httpclient"
@@ -73,7 +74,37 @@ type replyKeyboard struct {
 type apiResponse struct {
 	Result      json.RawMessage `json:"result"`
 	Description string          `json:"description"`
-	OK          bool            `json:"ok"`
+	Parameters  struct {
+		RetryAfter int `json:"retry_after"`
+	} `json:"parameters"`
+	OK bool `json:"ok"`
+}
+
+type entity struct {
+	Type   string `json:"type"`
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+}
+
+func entities(list []telegramDomain.Entity) []entity {
+	out := make([]entity, 0, len(list))
+	for _, e := range list {
+		out = append(out, entity{Type: e.Type, Offset: e.Offset, Length: e.Length})
+	}
+	return out
+}
+
+// maxRetryWait: a 429 asking to wait longer than this is returned as an error instead of waited out.
+const maxRetryWait = 30 * time.Second
+
+// retryAfterError is Telegram's 429 with its retry_after.
+type retryAfterError struct {
+	method string
+	wait   time.Duration
+}
+
+func (e retryAfterError) Error() string {
+	return fmt.Sprintf("telegram %s: too many requests, retry after %s", e.method, e.wait)
 }
 
 func (a *API) SendMessage(ctx context.Context, message telegramDomain.OutgoingMessage) (int64, error) {
@@ -82,8 +113,13 @@ func (a *API) SendMessage(ctx context.Context, message telegramDomain.OutgoingMe
 	if message.Silent {
 		payload["disable_notification"] = true
 	}
+	if len(message.Entities) > 0 {
+		payload["entities"] = entities(message.Entities)
+	}
 	if len(message.Buttons) > 0 {
 		payload["reply_markup"] = markup(message.Buttons)
+	} else if message.ForceReply != nil {
+		payload["reply_markup"] = map[string]any{"force_reply": true, "input_field_placeholder": message.ForceReply.Placeholder}
 	} else if message.RemoveKeyboard {
 		payload["reply_markup"] = map[string]bool{"remove_keyboard": true}
 	} else if len(message.Keyboard) > 0 {
@@ -170,6 +206,114 @@ func (a *API) EditMessageText(ctx context.Context, chatID, messageID int64, text
 // captionRunes keeps an edited caption under Telegram's 1024-unit caption limit (emoji count twice in UTF-16).
 const captionRunes = 500
 
+// SendVideo streams the video as a multipart upload (the master itself, at most 50 MB for a bot).
+func (a *API) SendVideo(ctx context.Context, video telegramDomain.Video) (int64, error) {
+	fields := map[string]string{"chat_id": strconv.FormatInt(video.ChatID, 10), "supports_streaming": "true"}
+	if video.Caption != "" {
+		fields["caption"] = video.Caption
+	}
+	if video.Silent {
+		fields["disable_notification"] = "true"
+	}
+	for name, value := range map[string]int{"duration": video.Seconds, "width": video.Width, "height": video.Height} {
+		if value > 0 {
+			fields[name] = strconv.Itoa(value)
+		}
+	}
+	if err := jsonFields(fields, video.Entities, video.Buttons, "caption_entities"); err != nil {
+		return 0, err
+	}
+	return a.upload(ctx, "sendVideo", fields, "video", "video.mp4", "video/mp4", video.Body)
+}
+
+// SendDocument uploads a small file as a document.
+func (a *API) SendDocument(ctx context.Context, document telegramDomain.Document) (int64, error) {
+	fields := map[string]string{"chat_id": strconv.FormatInt(document.ChatID, 10)}
+	if document.Caption != "" {
+		fields["caption"] = document.Caption
+	}
+	if document.Silent {
+		fields["disable_notification"] = "true"
+	}
+	return a.upload(ctx, "sendDocument", fields, "document", document.FileName, document.MimeType, bytes.NewReader(document.Data))
+}
+
+func jsonFields(fields map[string]string, list []telegramDomain.Entity, buttons [][]telegramDomain.Button, entitiesField string) error {
+	if len(list) > 0 {
+		encoded, err := json.Marshal(entities(list))
+		if err != nil {
+			return err
+		}
+		fields[entitiesField] = string(encoded)
+	}
+	if len(buttons) > 0 {
+		encoded, err := json.Marshal(markup(buttons))
+		if err != nil {
+			return err
+		}
+		fields["reply_markup"] = string(encoded)
+	}
+	return nil
+}
+
+// upload streams one file part after the fields through a pipe, so a 50 MB video is never held in memory.
+func (a *API) upload(ctx context.Context, method string, fields map[string]string, part, fileName, mimeType string, body io.Reader) (int64, error) {
+	reader, writer := io.Pipe()
+	form := multipart.NewWriter(writer)
+	go func() {
+		err := func() error {
+			for name, value := range fields {
+				if err := form.WriteField(name, value); err != nil {
+					return err
+				}
+			}
+			header := textproto.MIMEHeader{}
+			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, part, fileName))
+			header.Set("Content-Type", mimeType)
+			file, err := form.CreatePart(header)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(file, body); err != nil {
+				return err
+			}
+			return form.Close()
+		}()
+		_ = writer.CloseWithError(err)
+	}()
+	var result struct {
+		MessageID int64 `json:"message_id"`
+	}
+	err := a.call(ctx, method, form.FormDataContentType(), reader, &result)
+	_ = reader.Close()
+	if err != nil {
+		return 0, err
+	}
+	return result.MessageID, nil
+}
+
+// EditMessage replaces the text (or caption), entities and buttons of a message.
+func (a *API) EditMessage(ctx context.Context, edit telegramDomain.MessageEdit) error {
+	payload := map[string]any{"chat_id": edit.ChatID, "message_id": edit.MessageID, "reply_markup": markup(edit.Buttons)}
+	method, entitiesField := "editMessageText", "entities"
+	if edit.Caption {
+		method, entitiesField = "editMessageCaption", "caption_entities"
+		payload["caption"] = edit.Text
+	} else {
+		payload["text"] = edit.Text
+		payload["link_preview_options"] = map[string]bool{"is_disabled": true}
+	}
+	if len(edit.Entities) > 0 {
+		payload[entitiesField] = entities(edit.Entities)
+	}
+	return a.callJSON(ctx, method, payload, nil)
+}
+
+// EditButtons replaces only the inline keyboard.
+func (a *API) EditButtons(ctx context.Context, chatID, messageID int64, buttons [][]telegramDomain.Button) error {
+	return a.callJSON(ctx, "editMessageReplyMarkup", map[string]any{"chat_id": chatID, "message_id": messageID, "reply_markup": markup(buttons)}, nil)
+}
+
 // SetMyCommands sets the command menu shown next to the message field.
 func (a *API) SetMyCommands(ctx context.Context, commands []telegramDomain.Command) error {
 	list := make([]map[string]string, 0, len(commands))
@@ -230,12 +374,25 @@ func (a *API) DownloadFile(ctx context.Context, fileID string, maxBytes int64) (
 	return data, nil
 }
 
+// callJSON waits out one 429 (retry_after up to maxRetryWait) and sends the request again.
 func (a *API) callJSON(ctx context.Context, method string, payload, result any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 
+	err = a.call(ctx, method, "application/json", bytes.NewReader(body), result)
+	var limited retryAfterError
+	if !errors.As(err, &limited) || limited.wait > maxRetryWait {
+		return err
+	}
+	timer := time.NewTimer(limited.wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
 	return a.call(ctx, method, "application/json", bytes.NewReader(body), result)
 }
 
@@ -259,6 +416,14 @@ func (a *API) call(ctx context.Context, method, contentType string, body io.Read
 	}
 
 	if !decoded.OK {
+		switch {
+		case strings.Contains(decoded.Description, "message is not modified"):
+			return nil
+		case strings.Contains(decoded.Description, "message to edit not found"):
+			return telegramDomain.ErrMessageGone
+		case resp.StatusCode == http.StatusTooManyRequests && decoded.Parameters.RetryAfter > 0:
+			return retryAfterError{method: method, wait: time.Duration(decoded.Parameters.RetryAfter) * time.Second}
+		}
 		return fmt.Errorf("telegram %s: %s", method, decoded.Description)
 	}
 

@@ -190,6 +190,132 @@ func (_c *MockGate_DownloadFile_Call) RunAndReturn(run func(ctx context.Context,
 	return _c
 }
 
+// EditButtons provides a mock function for the type MockGate
+func (_mock *MockGate) EditButtons(ctx context.Context, chatID int64, messageID int64, buttons [][]telegram.Button) error {
+	ret := _mock.Called(ctx, chatID, messageID, buttons)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EditButtons")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, int64, int64, [][]telegram.Button) error); ok {
+		r0 = returnFunc(ctx, chatID, messageID, buttons)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockGate_EditButtons_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EditButtons'
+type MockGate_EditButtons_Call struct {
+	*mock.Call
+}
+
+// EditButtons is a helper method to define mock.On call
+//   - ctx context.Context
+//   - chatID int64
+//   - messageID int64
+//   - buttons [][]telegram.Button
+func (_e *MockGate_Expecter) EditButtons(ctx any, chatID any, messageID any, buttons any) *MockGate_EditButtons_Call {
+	return &MockGate_EditButtons_Call{Call: _e.mock.On("EditButtons", ctx, chatID, messageID, buttons)}
+}
+
+func (_c *MockGate_EditButtons_Call) Run(run func(ctx context.Context, chatID int64, messageID int64, buttons [][]telegram.Button)) *MockGate_EditButtons_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 int64
+		if args[1] != nil {
+			arg1 = args[1].(int64)
+		}
+		var arg2 int64
+		if args[2] != nil {
+			arg2 = args[2].(int64)
+		}
+		var arg3 [][]telegram.Button
+		if args[3] != nil {
+			arg3 = args[3].([][]telegram.Button)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGate_EditButtons_Call) Return(err error) *MockGate_EditButtons_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockGate_EditButtons_Call) RunAndReturn(run func(ctx context.Context, chatID int64, messageID int64, buttons [][]telegram.Button) error) *MockGate_EditButtons_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// EditMessage provides a mock function for the type MockGate
+func (_mock *MockGate) EditMessage(ctx context.Context, edit telegram.MessageEdit) error {
+	ret := _mock.Called(ctx, edit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EditMessage")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, telegram.MessageEdit) error); ok {
+		r0 = returnFunc(ctx, edit)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockGate_EditMessage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EditMessage'
+type MockGate_EditMessage_Call struct {
+	*mock.Call
+}
+
+// EditMessage is a helper method to define mock.On call
+//   - ctx context.Context
+//   - edit telegram.MessageEdit
+func (_e *MockGate_Expecter) EditMessage(ctx any, edit any) *MockGate_EditMessage_Call {
+	return &MockGate_EditMessage_Call{Call: _e.mock.On("EditMessage", ctx, edit)}
+}
+
+func (_c *MockGate_EditMessage_Call) Run(run func(ctx context.Context, edit telegram.MessageEdit)) *MockGate_EditMessage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 telegram.MessageEdit
+		if args[1] != nil {
+			arg1 = args[1].(telegram.MessageEdit)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGate_EditMessage_Call) Return(err error) *MockGate_EditMessage_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockGate_EditMessage_Call) RunAndReturn(run func(ctx context.Context, edit telegram.MessageEdit) error) *MockGate_EditMessage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // EditMessageText provides a mock function for the type MockGate
 func (_mock *MockGate) EditMessageText(ctx context.Context, chatID int64, messageID int64, text string) error {
 	ret := _mock.Called(ctx, chatID, messageID, text)
@@ -255,6 +381,72 @@ func (_c *MockGate_EditMessageText_Call) Return(err error) *MockGate_EditMessage
 }
 
 func (_c *MockGate_EditMessageText_Call) RunAndReturn(run func(ctx context.Context, chatID int64, messageID int64, text string) error) *MockGate_EditMessageText_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SendDocument provides a mock function for the type MockGate
+func (_mock *MockGate) SendDocument(ctx context.Context, document telegram.Document) (int64, error) {
+	ret := _mock.Called(ctx, document)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendDocument")
+	}
+
+	var r0 int64
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, telegram.Document) (int64, error)); ok {
+		return returnFunc(ctx, document)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, telegram.Document) int64); ok {
+		r0 = returnFunc(ctx, document)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, telegram.Document) error); ok {
+		r1 = returnFunc(ctx, document)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockGate_SendDocument_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendDocument'
+type MockGate_SendDocument_Call struct {
+	*mock.Call
+}
+
+// SendDocument is a helper method to define mock.On call
+//   - ctx context.Context
+//   - document telegram.Document
+func (_e *MockGate_Expecter) SendDocument(ctx any, document any) *MockGate_SendDocument_Call {
+	return &MockGate_SendDocument_Call{Call: _e.mock.On("SendDocument", ctx, document)}
+}
+
+func (_c *MockGate_SendDocument_Call) Run(run func(ctx context.Context, document telegram.Document)) *MockGate_SendDocument_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 telegram.Document
+		if args[1] != nil {
+			arg1 = args[1].(telegram.Document)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGate_SendDocument_Call) Return(n int64, err error) *MockGate_SendDocument_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockGate_SendDocument_Call) RunAndReturn(run func(ctx context.Context, document telegram.Document) (int64, error)) *MockGate_SendDocument_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -387,6 +579,72 @@ func (_c *MockGate_SendPhoto_Call) Return(n int64, err error) *MockGate_SendPhot
 }
 
 func (_c *MockGate_SendPhoto_Call) RunAndReturn(run func(ctx context.Context, photo telegram.Photo) (int64, error)) *MockGate_SendPhoto_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SendVideo provides a mock function for the type MockGate
+func (_mock *MockGate) SendVideo(ctx context.Context, video telegram.Video) (int64, error) {
+	ret := _mock.Called(ctx, video)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendVideo")
+	}
+
+	var r0 int64
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, telegram.Video) (int64, error)); ok {
+		return returnFunc(ctx, video)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, telegram.Video) int64); ok {
+		r0 = returnFunc(ctx, video)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, telegram.Video) error); ok {
+		r1 = returnFunc(ctx, video)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockGate_SendVideo_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendVideo'
+type MockGate_SendVideo_Call struct {
+	*mock.Call
+}
+
+// SendVideo is a helper method to define mock.On call
+//   - ctx context.Context
+//   - video telegram.Video
+func (_e *MockGate_Expecter) SendVideo(ctx any, video any) *MockGate_SendVideo_Call {
+	return &MockGate_SendVideo_Call{Call: _e.mock.On("SendVideo", ctx, video)}
+}
+
+func (_c *MockGate_SendVideo_Call) Run(run func(ctx context.Context, video telegram.Video)) *MockGate_SendVideo_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 telegram.Video
+		if args[1] != nil {
+			arg1 = args[1].(telegram.Video)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGate_SendVideo_Call) Return(n int64, err error) *MockGate_SendVideo_Call {
+	_c.Call.Return(n, err)
+	return _c
+}
+
+func (_c *MockGate_SendVideo_Call) RunAndReturn(run func(ctx context.Context, video telegram.Video) (int64, error)) *MockGate_SendVideo_Call {
 	_c.Call.Return(run)
 	return _c
 }

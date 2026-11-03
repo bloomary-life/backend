@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"time"
 )
@@ -13,6 +14,8 @@ var (
 	ErrTranscriberOff  = errors.New("voice transcription is not configured")
 	ErrFileTooLarge    = errors.New("telegram file is too large")
 	ErrTranscriptEmpty = errors.New("no speech found in the voice note")
+	// ErrMessageGone: the message to edit was deleted in the chat; send a new one instead.
+	ErrMessageGone = errors.New("telegram message to edit not found")
 )
 
 const LinkAttemptTTL = 10 * time.Minute
@@ -116,6 +119,56 @@ type OutgoingMessage struct {
 	RemoveKeyboard bool
 	// Silent delivers the message without a notification sound.
 	Silent bool
+	// Entities format parts of Text (offsets in UTF-16 code units); Telegram text is never parsed as HTML.
+	Entities []Entity
+	// ForceReply opens a reply to this message in the member's client, with Placeholder in the input field.
+	ForceReply *ForceReply
+}
+
+// Entity is a Telegram message entity, e.g. "expandable_blockquote"; Offset and Length count UTF-16 code units.
+type Entity struct {
+	Type   string
+	Offset int
+	Length int
+}
+
+// ForceReply: Placeholder is at most 64 characters.
+type ForceReply struct {
+	Placeholder string
+}
+
+// Video is uploaded from Body (the bot uploads at most 50 MB); Caption is at most 1024 UTF-16 units.
+type Video struct {
+	Body     io.Reader
+	Caption  string
+	Entities []Entity
+	Buttons  [][]Button
+	ChatID   int64
+	Seconds  int
+	Width    int
+	Height   int
+	Silent   bool
+}
+
+// Document is a file sent as a document (e.g. the scenario as a .txt).
+type Document struct {
+	Data     []byte
+	FileName string
+	MimeType string
+	Caption  string
+	ChatID   int64
+	Silent   bool
+}
+
+// MessageEdit replaces a message's text (a video or photo message's caption when Caption is set), its entities and
+// its buttons (none = removed).
+type MessageEdit struct {
+	Text      string
+	Entities  []Entity
+	Buttons   [][]Button
+	ChatID    int64
+	MessageID int64
+	Caption   bool
 }
 
 type Photo struct {

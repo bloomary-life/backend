@@ -10,6 +10,13 @@ type Gate interface {
 	SendMessage(ctx context.Context, message OutgoingMessage) (int64, error)
 	SendPhoto(ctx context.Context, photo Photo) (int64, error)
 	EditMessageText(ctx context.Context, chatID, messageID int64, text string) error
+	SendVideo(ctx context.Context, video Video) (int64, error)
+	SendDocument(ctx context.Context, document Document) (int64, error)
+	// EditMessage replaces text or caption, entities and buttons; "message is not modified" is not an error and a
+	// deleted message is ErrMessageGone.
+	EditMessage(ctx context.Context, edit MessageEdit) error
+	// EditButtons replaces only the inline keyboard (nil removes it).
+	EditButtons(ctx context.Context, chatID, messageID int64, buttons [][]Button) error
 	// AnswerCallback shows text as a short toast, or as a dialog the member closes when alert is true.
 	AnswerCallback(ctx context.Context, callbackID, text string, alert bool) error
 	DownloadFile(ctx context.Context, fileID string, maxBytes int64) ([]byte, error)
