@@ -13,6 +13,7 @@ import (
 	accountRepo "bloomary-api/internal/gates/repositories/account"
 	dailyRepo "bloomary-api/internal/gates/repositories/daily"
 	draftRepo "bloomary-api/internal/gates/repositories/draft"
+	"bloomary-api/internal/gates/repositories/migrations"
 	paddleEntitlementRepo "bloomary-api/internal/gates/repositories/paddle_entitlement"
 	trialRepo "bloomary-api/internal/gates/repositories/trial"
 )
@@ -75,6 +76,10 @@ func (s *BaseSuite) initSchema() {
 
 	err = s.TrialRepo.Init(s.Ctx)
 	s.Require().NoError(err, "error initializing trial schema")
+
+	// Goose migrations run after the inline Init, as at start.
+	err = migrations.Up(s.Ctx, s.DB)
+	s.Require().NoError(err, "error running migrations")
 }
 
 // Helper methods for inserting test data

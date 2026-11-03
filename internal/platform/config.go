@@ -85,6 +85,16 @@ type Config struct {
 	VoiceMemberIDs []string `env:"BLOOMARY_VOICE_MEMBER_IDS" envSeparator:","`
 	// WeeklyNumbersMemberIDs get the weekly-numbers reply to "numbers:" messages (members with a weekly report).
 	WeeklyNumbersMemberIDs []string `env:"BLOOMARY_WEEKLY_NUMBERS_MEMBER_IDS" envSeparator:","`
+
+	// Cross-posting (nothing posts yet). No hostname defaults here: public repo.
+	// PublishMode "live" posts for real; unset or any other value = dry_run (publisher not called, delivery simulated).
+	PublishMode string `env:"BLOOMARY_PUBLISH_MODE"`
+	// PublishingPaused is the fallback for the DB pause switch (bloomary_publish_pause): true pauses every network.
+	PublishingPaused bool `env:"BLOOMARY_PUBLISHING_PAUSED"`
+	// LiveDestinationIDs: in live mode, only these destinations post for real when the list is set (stage).
+	LiveDestinationIDs []string `env:"BLOOMARY_LIVE_DESTINATION_IDS" envSeparator:","`
+	// CredentialsKeyringFile is the vault keyring file (prod: systemd LoadCredential=; stage: read-only mount). Unset = no vault.
+	CredentialsKeyringFile string `env:"BLOOMARY_CREDENTIALS_KEYRING_FILE"`
 }
 
 type PositiveFloat float64

@@ -20,15 +20,18 @@ import (
 	trialDomain "bloomary-api/internal/domain/trial"
 	accountRepo "bloomary-api/internal/gates/repositories/account"
 	appleEntitlementRepo "bloomary-api/internal/gates/repositories/apple_entitlement"
+	crosspostRepo "bloomary-api/internal/gates/repositories/crosspost"
 	dailyRepo "bloomary-api/internal/gates/repositories/daily"
 	draftRepo "bloomary-api/internal/gates/repositories/draft"
 	insightRepo "bloomary-api/internal/gates/repositories/insight"
 	mcpOAuthRepo "bloomary-api/internal/gates/repositories/mcp_oauth"
+	"bloomary-api/internal/gates/repositories/migrations"
 	paddleRepo "bloomary-api/internal/gates/repositories/paddle_entitlement"
 	reviewRepo "bloomary-api/internal/gates/repositories/review"
 	scheduledRepo "bloomary-api/internal/gates/repositories/scheduledpost"
 	telegramRepo "bloomary-api/internal/gates/repositories/telegram"
 	trialRepo "bloomary-api/internal/gates/repositories/trial"
+	videostudioRepo "bloomary-api/internal/gates/repositories/videostudio"
 
 	_ "modernc.org/sqlite"
 )
@@ -47,6 +50,9 @@ type authStore struct {
 	telegramLinkRepo     telegramDomain.LinkRepository
 	reviewRepo           reviewDomain.Repository
 	mcpOAuthState        *mcpOAuthRepo.SQLiteStateStore
+	publishPause         *crosspostRepo.PauseRepository
+	// crosspostMemberData deletes the member's cross-posting and video studio rows on account deletion.
+	crosspostMemberData []accountDomain.MemberDataDeleter
 }
 
 func newAuthStoreWithBilling(path string, freeTierDays int, trialHMACSecret string) (*authStore, error) {
@@ -152,12 +158,56 @@ func newAuthStoreWithBilling(path string, freeTierDays int, trialHMACSecret stri
 		return nil, err
 	}
 
+	// Goose migrations run after the inline Init above (their baseline).
+	if err := migrations.Up(context.Background(), db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	publishPause, crosspostMemberData, err := newCrosspostRepositories(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
 	store := &authStore{
 		db: db, accountRepo: accountRepo, dailyRepo: dailyRepo, draftRepo: draftRepo,
 		paddleRepo: paddleRepo, paddleBillingRepo: paddleRepo, appleEntitlementRepo: appleEntitlementRepo, trialRepo: trialRepo, scheduledPostRepo: scheduledPostRepo, mcpOAuthState: mcpOAuthState,
 		insightRepo: insights, telegramLinkRepo: telegramLinks, reviewRepo: reviews,
+		publishPause: publishPause, crosspostMemberData: crosspostMemberData,
 	}
 	return store, nil
+}
+
+func newCrosspostRepositories(db *sql.DB) (*crosspostRepo.PauseRepository, []accountDomain.MemberDataDeleter, error) {
+	pause, err := crosspostRepo.NewPauseRepository(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	deliveries, err := crosspostRepo.NewDeliveryRepository(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	publications, err := crosspostRepo.NewPublicationRepository(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	destinations, err := crosspostRepo.NewDestinationRepository(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	connections, err := crosspostRepo.NewConnectionRepository(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	jobs, err := videostudioRepo.NewJobQueue(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	requests, err := videostudioRepo.NewRequestRepository(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pause, []accountDomain.MemberDataDeleter{deliveries, publications, destinations, connections, jobs, requests}, nil
 }
 
 func configureSQLite(ctx context.Context, db *sql.DB) error {

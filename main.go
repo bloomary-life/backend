@@ -103,6 +103,11 @@ func main() {
 			"redirect_expected": strings.TrimRight(config.BloomaryAPIRootURL, "/") + linkedInCLICallbackPath,
 		},
 	).Info("linkedin_auth_config")
+	credentialVault, err := newCredentialVault(config)
+	if err != nil {
+		appLogger.Fatal(fmt.Errorf("init credential vault: %w", err))
+	}
+	logCrosspostConfig(appLogger, config, credentialVault)
 
 	outboundDuration := metrics.MustInitOutboundHTTPRequestDurationMetric()
 	outboundInFlight := metrics.MustInitOutboundHTTPInFlightMetric()
@@ -494,6 +499,7 @@ func newApplicationStories(
 		return v0.ApplicationStories{}, err
 	}
 	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo, store.mcpOAuthState, store.scheduledPostRepo}
+	memberData = append(memberData, store.crosspostMemberData...)
 	if events, ok := config.ProductEvents.(accountDomain.MemberDataDeleter); ok {
 		memberData = append(memberData, events)
 	}
