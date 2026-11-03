@@ -1,0 +1,137 @@
+{
+ "_source": "Shared text counting cases for the Go backend and the web counter. X: https://docs.x.com/fundamentals/counting-characters (twitter-text config v3). Bare domains without http(s):// or www. are not counted as URLs.",
+ "cases": [
+  {
+   "name": "x doc example",
+   "counting": "x_weighted",
+   "text": "Hello, world! 👋",
+   "length": 16
+  },
+  {
+   "name": "x NFD cafe counts as NFC",
+   "counting": "x_weighted",
+   "text": "café",
+   "length": 4
+  },
+  {
+   "name": "x single emoji",
+   "counting": "x_weighted",
+   "text": "👾",
+   "length": 2
+  },
+  {
+   "name": "x emoji with skin tone",
+   "counting": "x_weighted",
+   "text": "🙋🏽",
+   "length": 2
+  },
+  {
+   "name": "x ZWJ emoji",
+   "counting": "x_weighted",
+   "text": "👨‍🎤",
+   "length": 2
+  },
+  {
+   "name": "x family sequence",
+   "counting": "x_weighted",
+   "text": "👨‍👩‍👧‍👦",
+   "length": 2
+  },
+  {
+   "name": "x flag",
+   "counting": "x_weighted",
+   "text": "🇨🇾",
+   "length": 2
+  },
+  {
+   "name": "x keycap",
+   "counting": "x_weighted",
+   "text": "1️⃣",
+   "length": 2
+  },
+  {
+   "name": "x copyright text style",
+   "counting": "x_weighted",
+   "text": "©",
+   "length": 1
+  },
+  {
+   "name": "x copyright emoji style",
+   "counting": "x_weighted",
+   "text": "©️",
+   "length": 2
+  },
+  {
+   "name": "x CJK",
+   "counting": "x_weighted",
+   "text": "日本語",
+   "length": 6
+  },
+  {
+   "name": "x short URL",
+   "counting": "x_weighted",
+   "text": "https://example.com",
+   "length": 23
+  },
+  {
+   "name": "x long URL",
+   "counting": "x_weighted",
+   "text": "https://example.com/very/long/path",
+   "length": 23
+  },
+  {
+   "name": "x URL in a sentence",
+   "counting": "x_weighted",
+   "text": "Read https://example.com.",
+   "length": 29
+  },
+  {
+   "name": "x www URL",
+   "counting": "x_weighted",
+   "text": "www.example.com/a",
+   "length": 23
+  },
+  {
+   "name": "x em dash light (U+2014), ellipsis heavy (U+2026)",
+   "counting": "x_weighted",
+   "text": "a—b…",
+   "length": 5
+  },
+  {
+   "name": "utf16 emoji",
+   "counting": "utf16",
+   "text": "👋",
+   "length": 2
+  },
+  {
+   "name": "utf16 latin",
+   "counting": "utf16",
+   "text": "abc",
+   "length": 3
+  },
+  {
+   "name": "bytes accented",
+   "counting": "bytes",
+   "text": "é",
+   "length": 2
+  },
+  {
+   "name": "bytes emoji",
+   "counting": "bytes",
+   "text": "👋",
+   "length": 4
+  },
+  {
+   "name": "runes emoji",
+   "counting": "runes",
+   "text": "👋👋",
+   "length": 2
+  },
+  {
+   "name": "runes NFD",
+   "counting": "runes",
+   "text": "café",
+   "length": 4
+  }
+ ]
+}
