@@ -6,8 +6,8 @@ import (
 	"time"
 
 	appleiapDomain "bloomary-api/internal/domain/appleiap"
-	"bloomary-api/internal/platform/identity"
 	perror "bloomary-api/internal/platform/error"
+	"bloomary-api/internal/platform/identity"
 )
 
 type appleTransactionSyncStory struct {

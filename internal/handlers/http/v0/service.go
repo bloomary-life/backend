@@ -64,6 +64,8 @@ type Config struct {
 	// VoiceMemberIDs may send voice notes to the bot; WeeklyNumbersMemberIDs get the weekly-numbers reply.
 	VoiceMemberIDs         []string
 	WeeklyNumbersMemberIDs []string
+	// ProducerTokenSHA256 is BLOOMARY_PRODUCER_TOKEN_SHA256 (hex); unset = producer routes absent (404).
+	ProducerTokenSHA256 string
 }
 
 func DefaultConfig() Config {
@@ -118,6 +120,9 @@ type service struct {
 	mcpHandler            http.Handler
 	publishGuard          crosspostDomain.PublishGuard
 	crosspost             *CrosspostStories
+	producer              *ProducerStories
+	producerGuard         *producerGuard
+	metaCallbacks         *MetaCallbacks
 }
 
 func (s *service) setPlatformCORS(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +186,9 @@ type ApplicationStories struct {
 	PublishGuard crosspostDomain.PublishGuard
 	// Crosspost stays nil while BLOOMARY_CROSSPOST_ENABLED is off.
 	Crosspost *CrosspostStories
+	// Producer stays nil while the video studio is off; MetaCallbacks while Bloomary's Meta app isn't configured.
+	Producer      *ProducerStories
+	MetaCallbacks *MetaCallbacks
 }
 
 func NewService(
@@ -263,6 +271,9 @@ func NewService(
 		telegramLinkStory:     appStories.TelegramLink,
 		publishGuard:          appStories.PublishGuard,
 		crosspost:             appStories.Crosspost,
+		producer:              appStories.Producer,
+		producerGuard:         newProducerGuard(),
+		metaCallbacks:         appStories.MetaCallbacks,
 	}
 	if err := svc.webSessions.load(config.WebSessionPath); err != nil {
 		return nil, err
@@ -355,7 +366,10 @@ func (s *service) Mux(ctx context.Context) *http.ServeMux {
 		handle("/api/publications/delivery", s.PublicationsDelivery)
 		handle("/api/publications/cancel", s.PublicationsCancel)
 		handle("/api/publications/retry", s.PublicationsRetry)
+		handle("/api/publications/list", s.PublicationsList)
 	}
+	s.registerProducerRoutes(handle)
+	s.registerMetaRoutes(handle)
 	mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mcpHandler.ServeHTTP(w, r.WithContext(appLogger.ToContext(r.Context())))
 	}))

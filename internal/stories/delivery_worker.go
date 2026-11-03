@@ -178,7 +178,7 @@ func (w *DeliveryWorker) request(ctx context.Context, d crosspostDomain.Delivery
 			return crosspostDomain.PublishRequest{}, time.Minute, err
 		}
 	}
-	request := crosspostDomain.PublishRequest{Delivery: d, Destination: destination, Credentials: credentials}
+	request := crosspostDomain.PublishRequest{Delivery: d, Destination: destination, Credentials: credentials, CoverKey: d.CoverKey}
 	if len(destination.Sealed.Data) > 0 {
 		token, err := w.vault.Open(ctx, crosspostDomain.VaultBinding{RecordID: destination.ID, MemberID: d.MemberID, Provider: connection.Provider}, destination.Sealed)
 		if err != nil {

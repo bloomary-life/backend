@@ -70,6 +70,18 @@ type PublicationLister interface {
 	ListApproved(ctx context.Context, memberID string, closedSince time.Time) ([]Publication, error)
 }
 
+// ConnectionFinder finds the connections of one provider account across members (Meta's callbacks name only the
+// app-scoped user ID).
+type ConnectionFinder interface {
+	ByProviderAccount(ctx context.Context, provider Provider, accountID string) ([]Connection, error)
+}
+
+// MetaCallbackStory handles Meta's data deletion and deauthorise callbacks for an app-scoped user ID: every Meta
+// connection of that user is removed (Pages, Instagram accounts, unstarted posts) and an audit row records the code.
+type MetaCallbackStory interface {
+	MetaCallback(ctx context.Context, kind, appScopedUserID, confirmationCode string) (removed int, err error)
+}
+
 // DeliveryLister lists every delivery of a member (connection removal, account deletion, reconnect).
 type DeliveryLister interface {
 	ListByMember(ctx context.Context, memberID string) ([]Delivery, error)

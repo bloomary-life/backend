@@ -56,6 +56,13 @@ func (c *Connector) FinishConnect(ctx context.Context, callback crosspostDomain.
 	if err != nil {
 		return crosspostDomain.Credentials{}, nil, err
 	}
+	var me struct {
+		ID string `json:"id"`
+	}
+	if err := c.call(ctx, http.MethodGet, "/me?fields=id", credentials.AccessToken, nil, "meta_me", &me); err != nil {
+		return crosspostDomain.Credentials{}, nil, err
+	}
+	credentials.AccountID = me.ID
 	candidates, err := c.pages(ctx, credentials.AccessToken)
 	if err != nil {
 		return crosspostDomain.Credentials{}, nil, err

@@ -78,6 +78,24 @@ func (r *ConnectionRepository) ByID(ctx context.Context, memberID, id string) (c
 	return scanConnection(r.db.QueryRowContext(ctx, `SELECT `+connectionColumns+` FROM bloomary_connections WHERE member_id=? AND id=?`, memberID, id))
 }
 
+// ByProviderAccount lists the connections of one provider account across members.
+func (r *ConnectionRepository) ByProviderAccount(ctx context.Context, provider crosspostDomain.Provider, accountID string) ([]crosspostDomain.Connection, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+connectionColumns+` FROM bloomary_connections WHERE provider=? AND account_id=? ORDER BY created_at,id`, provider, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("connections by account: %w", err)
+	}
+	defer rows.Close()
+	var out []crosspostDomain.Connection
+	for rows.Next() {
+		c, err := scanConnection(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 func (r *ConnectionRepository) ListByMember(ctx context.Context, memberID string) ([]crosspostDomain.Connection, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+connectionColumns+` FROM bloomary_connections WHERE member_id=? ORDER BY created_at,id`, memberID)
 	if err != nil {

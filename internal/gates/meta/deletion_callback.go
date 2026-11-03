@@ -2,8 +2,10 @@ package meta
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,4 +72,27 @@ func (d *DeletionCallback) Verify(signedRequest string) (SignedRequest, error) {
 // decodeBase64URL accepts base64url with or without padding.
 func decodeBase64URL(value string) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(strings.TrimRight(value, "="))
+}
+
+// NewConfirmationCode is "<random>-<tag>": the tag is an HMAC of the random part with the app secret, so the status
+// page can recognise its own codes without storing them.
+func (d *DeletionCallback) NewConfirmationCode() (string, error) {
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return "", fmt.Errorf("meta confirmation code: %w", err)
+	}
+	head := hex.EncodeToString(random)
+	return head + "-" + d.tag(head), nil
+}
+
+// ValidConfirmationCode reports whether the code was made by NewConfirmationCode with this app secret.
+func (d *DeletionCallback) ValidConfirmationCode(code string) bool {
+	head, tag, found := strings.Cut(code, "-")
+	return found && len(head) == 16 && hmac.Equal([]byte(tag), []byte(d.tag(head)))
+}
+
+func (d *DeletionCallback) tag(head string) string {
+	mac := hmac.New(sha256.New, d.appSecret)
+	mac.Write([]byte("confirmation:" + head))
+	return hex.EncodeToString(mac.Sum(nil))[:16]
 }

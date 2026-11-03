@@ -121,6 +121,16 @@ type Config struct {
 	FFmpegPath   string `env:"BLOOMARY_FFMPEG_PATH"`
 	FFprobePath  string `env:"BLOOMARY_FFPROBE_PATH"`
 	MediaWorkDir string `env:"BLOOMARY_MEDIA_WORK_DIR"`
+
+	// Telegram video studio (needs cross-posting, the user bot, R2, the media worker and the sealed Gemini key);
+	// an empty member list = studio off.
+	VideoStudioMemberIDs []string `env:"BLOOMARY_VIDEO_STUDIO_MEMBER_IDS" envSeparator:","`
+	// ProducerTokenSHA256 is the hex SHA-256 of the producer's token; unset = producer endpoints answer 404.
+	ProducerTokenSHA256 string `env:"BLOOMARY_PRODUCER_TOKEN_SHA256"`
+	// StudioPaidShotsPerVideo: paid AI shots per video that count as Kat's standing go (rule R2).
+	StudioPaidShotsPerVideo int `env:"BLOOMARY_STUDIO_PAID_SHOTS_PER_VIDEO" envDefault:"5"`
+	// GeminiKeySealedFile holds the Gemini paid-tier key sealed by the vault (`bloomary-api seal-gemini-key`).
+	GeminiKeySealedFile string `env:"BLOOMARY_GEMINI_KEY_SEALED_PATH"`
 }
 
 type PositiveFloat float64

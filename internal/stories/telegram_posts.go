@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	crosspostDomain "bloomary-api/internal/domain/crosspost"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	reviewDomain "bloomary-api/internal/domain/review"
@@ -16,18 +17,19 @@ import (
 )
 
 const (
-	previewPrefix  = "pv:"
-	editSavedTail  = "When your AI app rewrites the post, the new preview comes here."
-	editSaved      = "Got it. " + editSavedTail
-	editTooLate    = "This post can't be changed any more: it was published, skipped, discarded or deleted."
-	editLimit      = "Daily edit limit reached. Edit the post in Bloomary instead."
-	editHowTo      = "Reply to this message with a voice note or text and say what to change."
-	plannedNone    = "No scheduled posts and no drafts previewed in the last 7 days. All drafts: Bloomary → Drafts."
-	plannedHeader  = "Scheduled posts:"
-	draftsHeader   = "Drafts (not scheduled):"
-	draftsWindow   = 7 * 24 * time.Hour
-	plannedRunes   = 60
-	plannedMaxRows = 20
+	previewPrefix   = "pv:"
+	editSavedTail   = "When your AI app rewrites the post, the new preview comes here."
+	editSaved       = "Got it. " + editSavedTail
+	editTooLate     = "This post can't be changed any more: it was published, skipped, discarded or deleted."
+	editLimit       = "Daily edit limit reached. Edit the post in Bloomary instead."
+	editHowTo       = "Reply to this message with a voice note or text and say what to change."
+	plannedNone     = "No scheduled posts and no drafts previewed in the last 7 days. All drafts: Bloomary → Drafts."
+	plannedHeader   = "Scheduled posts:"
+	plannedNetworks = "Posts to other networks:"
+	draftsHeader    = "Drafts (not scheduled):"
+	draftsWindow    = 7 * 24 * time.Hour
+	plannedRunes    = 60
+	plannedMaxRows  = 20
 )
 
 // postTimeZone is the zone the bot shows post times in (Cyprus for every member until members can set their own); falls back to UTC.
@@ -163,6 +165,8 @@ type PlannedPosts struct {
 	notify  *NotifyScheduled
 	bot     telegramDomain.Gate
 	command string
+	// publications lists posts to other networks (nil while cross-posting is off).
+	publications crosspostDomain.ListPublicationsStory
 }
 
 var (
@@ -170,11 +174,13 @@ var (
 	_ telegramDomain.CallbackHandler = (*PlannedPosts)(nil)
 )
 
-func NewPlannedPosts(jobs scheduledDomain.Repository, drafts draftDomain.Repository, notify *NotifyScheduled, bot telegramDomain.Gate) (*PlannedPosts, error) {
+// NewPlannedPosts: publications is nil while cross-posting is off (then /planned lists LinkedIn only, as before).
+func NewPlannedPosts(jobs scheduledDomain.Repository, drafts draftDomain.Repository, notify *NotifyScheduled, bot telegramDomain.Gate,
+	publications crosspostDomain.ListPublicationsStory) (*PlannedPosts, error) {
 	if jobs == nil || drafts == nil || notify == nil || bot == nil {
 		return nil, fmt.Errorf("planned posts: schedules, drafts, notify story and bot gate are required")
 	}
-	return &PlannedPosts{jobs: jobs, drafts: drafts, notify: notify, bot: bot, command: "/planned"}, nil
+	return &PlannedPosts{jobs: jobs, drafts: drafts, notify: notify, bot: bot, command: "/planned", publications: publications}, nil
 }
 
 func (s *PlannedPosts) Command() string { return s.command }
@@ -186,8 +192,12 @@ func (s *PlannedPosts) HandleCommand(ctx context.Context, link telegramDomain.Li
 	}
 	var lines []string
 	var buttons [][]telegramDomain.Button
+	publicationLines, inPublication, err := s.publicationRows(ctx, link.MemberID, &buttons)
+	if err != nil {
+		return err
+	}
 	for _, job := range jobs {
-		if !stillScheduled(job.Status) || len(buttons) == plannedMaxRows {
+		if !stillScheduled(job.Status) || len(buttons) == plannedMaxRows || inPublication[job.ID] {
 			continue
 		}
 		first := "(draft not found)"
@@ -201,6 +211,9 @@ func (s *PlannedPosts) HandleCommand(ctx context.Context, link telegramDomain.Li
 	var sections []string
 	if len(lines) > 0 {
 		sections = append(sections, plannedHeader+"\n"+strings.Join(lines, "\n"))
+	}
+	if len(publicationLines) > 0 {
+		sections = append(sections, plannedNetworks+"\n"+strings.Join(publicationLines, "\n"))
 	}
 	draftLines, err := s.recentDrafts(ctx, link.MemberID, &buttons)
 	if err != nil {
@@ -216,6 +229,50 @@ func (s *PlannedPosts) HandleCommand(ctx context.Context, link telegramDomain.Li
 	}
 	_, err = s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: strings.Join(sections, "\n\n"), Buttons: buttons})
 	return err
+}
+
+// publicationRows lists open publications to other networks: "3. Wed 4 Nov — “first line” · X 13:00, YouTube 16:00"
+// with a Status button; LinkedIn posts that belong to one are left out of the LinkedIn list (inPublication).
+func (s *PlannedPosts) publicationRows(ctx context.Context, memberID string, buttons *[][]telegramDomain.Button) ([]string, map[string]bool, error) {
+	inPublication := map[string]bool{}
+	if s.publications == nil {
+		return nil, inPublication, nil
+	}
+	views, err := s.publications.ListPublications(ctx, memberID)
+	if err != nil {
+		return nil, nil, err
+	}
+	var lines []string
+	for _, view := range views {
+		if !view.Publication.ClosedAt.IsZero() || len(*buttons) == plannedMaxRows {
+			continue
+		}
+		inPublication[view.Publication.LinkedInScheduleID] = true
+		var times []string
+		day := ""
+		for _, d := range view.Deliveries {
+			if d.Status != crosspostDomain.StatusScheduled {
+				continue
+			}
+			local := d.PublishAt.In(postTimeZone)
+			if day == "" {
+				day = local.Format("Mon 2 Jan")
+			}
+			times = append(times, networkName(d.Network)+" "+local.Format("15:04"))
+		}
+		if len(times) == 0 {
+			continue
+		}
+		first := "(draft not found)"
+		if draft, err := s.drafts.ByID(ctx, memberID, view.Publication.DraftID); err == nil {
+			first = firstLine(draft.Body)
+		}
+		n := len(*buttons) + 1
+		lines = append(lines, fmt.Sprintf("%d. %s — “%s” · %s", n, day, first, strings.Join(times, ", ")))
+		*buttons = append(*buttons, []telegramDomain.Button{{Text: fmt.Sprintf("Status %d", n), CallbackData: statusPrefix + "st:" + view.Publication.ID}})
+	}
+	delete(inPublication, "")
+	return lines, inPublication, nil
 }
 
 // recentDrafts lists the newest live draft preview per draft from the last 7 days whose draft is still unpublished.

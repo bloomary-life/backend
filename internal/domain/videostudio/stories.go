@@ -44,7 +44,7 @@ type ApprovePaidShotsStory interface {
 
 type MakeVoiceOverStory interface {
 	// MakeVoiceOver (worker) speaks the scenario's voice-over text, then enqueues the render job.
-	MakeVoiceOver(ctx context.Context, requestID string) error
+	MakeVoiceOver(ctx context.Context, memberID, requestID string) error
 }
 
 type ApproveVideoInput struct {

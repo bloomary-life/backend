@@ -33,7 +33,7 @@ func newPostsFixture(t *testing.T) postsFixture {
 		drafts: draftMocks.NewMockRepository(t), notifier: telegramMocks.NewMockNotifier(t)}
 	notify, err := NewNotifyScheduled(proAccess(t), f.drafts, f.jobs, f.reviews, nil, f.notifier, "https://platform.bloomary.life")
 	require.NoError(t, err)
-	planned, err := NewPlannedPosts(f.jobs, f.drafts, notify, f.gate)
+	planned, err := NewPlannedPosts(f.jobs, f.drafts, notify, f.gate, nil)
 	require.NoError(t, err)
 	replies, err := NewEditReplies(f.reviews, f.jobs, f.drafts)
 	require.NoError(t, err)

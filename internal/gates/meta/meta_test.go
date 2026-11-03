@@ -87,6 +87,7 @@ func TestMetaConnectorLoginPagesAndInstagram(t *testing.T) {
 	credentials, candidates, err := connector.FinishConnect(ctx, crosspostDomain.ConnectCallback{Code: "code-1", RedirectURI: "https://app.example/cb"})
 	require.NoError(t, err)
 	require.Equal(t, userToken, credentials.AccessToken)
+	require.Equal(t, "900", credentials.AccountID, "the app-scoped user ID the deletion callback sends")
 	require.WithinDuration(t, time.Now().Add(60*24*time.Hour), credentials.ExpiresAt, 2*time.Hour)
 	require.Len(t, candidates, 3)
 	require.Equal(t, crosspostDomain.DestinationCandidate{Network: crosspostDomain.FacebookPage, AccountID: "101", AccountName: "Bloomary Test Page", Token: crosspostDomain.Credentials{AccessToken: pageToken}}, candidates[0])

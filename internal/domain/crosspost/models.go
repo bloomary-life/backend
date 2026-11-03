@@ -52,6 +52,9 @@ type Credentials struct {
 	AccessToken  string
 	RefreshToken string
 	Scope        string
+	// AccountID is the login's own account when the provider names it (Meta: the app-scoped user ID its deletion
+	// and deauthorise callbacks send); it becomes the connection's AccountID.
+	AccountID string
 }
 
 const redacted = "[redacted]"

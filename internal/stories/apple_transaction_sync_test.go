@@ -40,7 +40,7 @@ func TestAppleTransactionSyncAppliesVerifiedTransaction(t *testing.T) {
 
 func verifiedTransaction(memberID string, now time.Time) appleiapDomain.VerifiedTransaction {
 	return appleiapDomain.VerifiedTransaction{
-		AppAccountToken:       identity.AppAccountTokenFor("linkedin",memberID),
+		AppAccountToken:       identity.AppAccountTokenFor("linkedin", memberID),
 		OriginalTransactionID: "original-1",
 		TransactionID:         "transaction-1",
 		ProductID:             "bloomary.pro.monthly",

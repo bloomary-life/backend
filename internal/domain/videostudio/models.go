@@ -18,6 +18,8 @@ var (
 	ErrMasterChanged = errors.New("videostudio: the video changed after it was checked")
 	// ErrRenderSubmitted: the job's render was already submitted; a second /render is refused.
 	ErrRenderSubmitted = errors.New("videostudio: render already submitted")
+	// ErrScenarioIncomplete: the submitted scenario lacks the fields its job needs.
+	ErrScenarioIncomplete = errors.New("videostudio: scenario needs a title, voice-over text and captions")
 	// ErrNotAllowed: the member isn't in the studio allowlist.
 	ErrNotAllowed = errors.New("videostudio: the video studio isn't open for this account")
 )
@@ -93,6 +95,7 @@ type StudioState struct {
 	// Choices: delivery ID → ChoiceNow or ChoiceSkip (absent = best time), from "Choose networks".
 	Choices      map[string]string
 	FailedKind   JobKind
+	FailedInput  string
 	Failure      string
 	AILabelOff   bool
 	Choosing     bool
@@ -211,6 +214,8 @@ const (
 	JobReviseScenario JobKind = "revise_scenario"
 	JobRenderVideo    JobKind = "render_video"
 	JobReviseCaptions JobKind = "revise_captions"
+	// StepVoiceOver is the backend's voice-over step (not a producer job), recorded as FailedKind when it fails.
+	StepVoiceOver JobKind = "voice_over"
 )
 
 type ProducerJob struct {

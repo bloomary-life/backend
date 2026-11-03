@@ -98,6 +98,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "seal-gemini-key" {
+		if err := sealGeminiKey(ctx, config, os.Stdin, os.Stdout); err != nil {
+			appLogger.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "replay-deletions" {
 		if err := replayDeletions(ctx, config, store, postPublishRepo, os.Args[2:]); err != nil {
 			appLogger.Fatal(err)
@@ -125,7 +131,7 @@ func main() {
 	if err != nil {
 		appLogger.Fatal(err)
 	}
-	crosspost := &crosspostSetup{vault: credentialVault, auditKey: auditKey, config: config}
+	crosspost := &crosspostSetup{vault: credentialVault, auditKey: auditKey, config: config, log: appLogger}
 
 	outboundDuration := metrics.MustInitOutboundHTTPRequestDurationMetric()
 	outboundInFlight := metrics.MustInitOutboundHTTPInFlightMetric()
@@ -438,6 +444,7 @@ func newApplicationStories(
 	if guarded, ok := schedule.(interface{ UseGuard(crosspostDomain.PublishGuard) }); ok {
 		guarded.UseGuard(publishGuard)
 	}
+	crosspost.bot = userBot
 	crosspostStories, crosspostDeletion, err := newCrosspostStories(crosspost, store, draftImages, access, schedule, publishGuard, config.Notifications)
 	if err != nil {
 		return v0.ApplicationStories{}, err
@@ -548,6 +555,7 @@ func newApplicationStories(
 	var notifyScheduled reviewDomain.NotifyScheduledStory
 	var sendSuggestion reviewDomain.SendSuggestionStory
 	var firstComments reviewDomain.FirstCommentStory
+	var studio *videoStudio
 	editRequests, err := stories.NewEditRequests(access, store.reviewRepo)
 	if err != nil {
 		return v0.ApplicationStories{}, err
@@ -567,7 +575,11 @@ func newApplicationStories(
 			return v0.ApplicationStories{}, err
 		}
 		notifyScheduled = notify
-		planned, err := stories.NewPlannedPosts(store.scheduledPostRepo, store.draftRepo, notify, userBot)
+		var publications crosspostDomain.ListPublicationsStory
+		if crosspostStories != nil {
+			publications = crosspostStories.List
+		}
+		planned, err := stories.NewPlannedPosts(store.scheduledPostRepo, store.draftRepo, notify, userBot, publications)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -603,9 +615,23 @@ func newApplicationStories(
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
-		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, stories.TelegramBotHandlers{
+		handlers := stories.TelegramBotHandlers{
 			VoiceMembers: voiceMembers, NumbersMembers: telegramDomain.NewMemberSet(config.WeeklyNumbersMemberIDs),
-			Replies: []telegramDomain.ReplyHandler{editReplies, trendReplies}, Callbacks: []telegramDomain.CallbackHandler{skips, scheduleNext, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}})
+			Replies: []telegramDomain.ReplyHandler{editReplies, trendReplies}, Callbacks: []telegramDomain.CallbackHandler{skips, scheduleNext, suggestions, planned}, Commands: []telegramDomain.CommandHandler{planned}}
+		if crosspost.statusHook != nil {
+			handlers.Callbacks = append(handlers.Callbacks, crosspost.statusHook)
+		}
+		studio, err = newVideoStudio(crosspost.log.ToContext(context.Background()), crosspost, store, draftImages, crosspostStories, transcriber != nil, voiceMembers, config.WebAllowedOrigin)
+		if err != nil {
+			return v0.ApplicationStories{}, err
+		}
+		if studio != nil {
+			handlers.StudioMembers = telegramDomain.NewMemberSet(crosspost.config.VideoStudioMemberIDs)
+			handlers.Replies = append([]telegramDomain.ReplyHandler{studio.telegram}, handlers.Replies...)
+			handlers.Callbacks = append(handlers.Callbacks, studio.telegram)
+			handlers.Commands = append(handlers.Commands, studio.telegram)
+		}
+		telegramBot, err = stories.NewTelegramBot(store.telegramLinkRepo, userBot, transcriber, store.insightRepo, store.accountRepo, config.WebAllowedOrigin, handlers)
 		if err != nil {
 			return v0.ApplicationStories{}, err
 		}
@@ -620,8 +646,15 @@ func newApplicationStories(
 		AppleTransaction: appleSync, AppleNotifications: appleNotifications,
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,
 		Access: access, ScheduledPost: schedule, MCPAuthorization: mcpAuthorization, MCPTokenVerifier: mcpTokenVerifier, MCPGrants: store.mcpOAuthState,
-		PublishGuard: publishGuard, Crosspost: crosspostStories,
+		PublishGuard: publishGuard, Crosspost: crosspostStories, MetaCallbacks: crosspost.metaCallbacks, Producer: studioProducer(studio),
 	}, nil
+}
+
+func studioProducer(studio *videoStudio) *v0.ProducerStories {
+	if studio == nil {
+		return nil
+	}
+	return studio.producer
 }
 
 // memberDataDeleters are the feature data account deletion removes after the drafts.
@@ -807,6 +840,7 @@ func handlerConfig(config platform.Config, productCounters ...metrics.ProductCou
 		TelegramBotUsername:    config.UserBotUsername,
 		VoiceMemberIDs:         config.VoiceMemberIDs,
 		WeeklyNumbersMemberIDs: config.WeeklyNumbersMemberIDs,
+		ProducerTokenSHA256:    config.ProducerTokenSHA256,
 	}
 }
 

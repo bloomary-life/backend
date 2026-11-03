@@ -27,9 +27,12 @@ type CrosspostStories struct {
 	Cancel         crosspostDomain.CancelDeliveryStory
 	Retry          crosspostDomain.RetryDeliveryStory
 	Status         crosspostDomain.PublicationStatusStory
-	// StatusLine and LinkedInLine render ux.md Table 3 lines (stories.CrosspostStatusLine, stories.LinkedInStatusLine).
+	List           crosspostDomain.ListPublicationsStory
+	// StatusLine and LinkedInLine render ux.md Table 3 lines (stories.CrosspostStatusLine, stories.LinkedInStatusLine);
+	// SummaryLine is the Scheduled tab's row (stories.PublicationSummaryLine).
 	StatusLine   func(crosspostDomain.Delivery) string
 	LinkedInLine func(crosspostDomain.LinkedInPart) string
+	SummaryLine  func(crosspostDomain.PublicationView) string
 }
 
 const maxCrosspostBodyBytes = 256 << 10

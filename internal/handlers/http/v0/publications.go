@@ -240,3 +240,28 @@ func (s *service) PublicationsRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, s.toDelivery(delivery))
 }
+
+type publicationListItem struct {
+	publicationResponse
+	Summary string `json:"summary"`
+}
+
+// PublicationsList: GET → {publications: [...]}: the member's approved publications, open or closed in the last 7
+// days, newest first, each as GET /api/publications returns it plus "summary" ("4 networks · next: X Wed 4 Nov,
+// 13:00 (UTC+2)") for the Scheduled tab.
+func (s *service) PublicationsList(w http.ResponseWriter, r *http.Request) {
+	memberID, ok := s.crosspostMember(w, r, "/api/publications/list", http.MethodGet)
+	if !ok {
+		return
+	}
+	views, err := s.crosspost.List.ListPublications(r.Context(), memberID)
+	if err != nil {
+		writeCrosspostError(w, r, err)
+		return
+	}
+	items := make([]publicationListItem, 0, len(views))
+	for _, view := range views {
+		items = append(items, publicationListItem{publicationResponse: s.toPublication(view), Summary: s.crosspost.SummaryLine(view)})
+	}
+	writeJSON(w, map[string]any{"publications": items})
+}

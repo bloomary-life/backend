@@ -118,9 +118,10 @@ func checkApprovable(deliveries []crosspostDomain.Delivery) error {
 
 // mediaSource is the draft's current media: what every delivery freezes a copy of.
 type mediaSource struct {
-	info   *crosspostDomain.MediaInfo
-	key    string
-	sha256 string
+	info     *crosspostDomain.MediaInfo
+	key      string
+	sha256   string
+	coverKey string // the video's cover image, when it has one
 }
 
 func (s *approvePublicationStory) draftSource(ctx context.Context, publication crosspostDomain.Publication) (mediaSource, error) {
@@ -136,7 +137,7 @@ func (s *approvePublicationStory) draftSource(ctx context.Context, publication c
 	source := mediaSource{info: draftMedia(draft, extras)}
 	switch {
 	case extras.Video != nil:
-		source.key, source.sha256 = extras.Video.MasterKey, extras.Video.SHA256
+		source.key, source.sha256, source.coverKey = extras.Video.MasterKey, extras.Video.SHA256, extras.Video.CoverKey
 	case draft.Image != nil:
 		source.key, source.sha256 = draft.Image.ObjectKey, draft.Image.ChecksumSHA256
 	}
@@ -161,6 +162,14 @@ func (s *approvePublicationStory) freeze(ctx context.Context, d *crosspostDomain
 		if warning != "" {
 			d.Warnings = append(d.Warnings, warning)
 		}
+	}
+	if source.coverKey != "" {
+		// The cover is frozen with the video, so PublishRequest.CoverKey survives draft edits and deletion.
+		cover := s.objects.LinkedObjectKey(d.MemberID, "publication-"+d.PublicationID, d.ID+"-cover")
+		if err := s.objects.Copy(ctx, source.coverKey, cover); err != nil {
+			return err
+		}
+		d.CoverKey = cover
 	}
 	problems, _ := crosspostDomain.Rules[d.Network].Check(crosspostDomain.ContentToCheck{Media: info, Text: d.Text, Title: d.Title, Hashtags: d.Hashtags})
 	if skips, _ := crosspostDomain.SkipLines(problems); len(skips) > 0 {

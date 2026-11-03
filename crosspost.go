@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	accountDomain "bloomary-api/internal/domain/account"
@@ -15,11 +16,13 @@ import (
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	notificationDomain "bloomary-api/internal/domain/notification"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
+	telegramDomain "bloomary-api/internal/domain/telegram"
 	mediaGate "bloomary-api/internal/gates/media"
 	metaGate "bloomary-api/internal/gates/meta"
 	objectstoreGate "bloomary-api/internal/gates/objectstore"
 	crosspostRepo "bloomary-api/internal/gates/repositories/crosspost"
 	deletionlogRepo "bloomary-api/internal/gates/repositories/deletionlog"
+	videostudioRepo "bloomary-api/internal/gates/repositories/videostudio"
 	tiktokGate "bloomary-api/internal/gates/tiktok"
 	vaultGate "bloomary-api/internal/gates/vault"
 	xGate "bloomary-api/internal/gates/x"
@@ -97,6 +100,14 @@ type crosspostSetup struct {
 	auditKey  []byte
 	config    platform.Config
 	workers   []func(context.Context)
+	log *logger.Logger
+	// bot is the user bot (nil when BLOOMARY_APP_TOKEN is empty): Telegram status messages and the studio need it.
+	bot telegramDomain.Gate
+	// Built by newCrosspostStories for the studio and the router.
+	repos         stories.CrosspostRepos
+	media         crosspostDomain.MediaWorker
+	statusHook    *stories.CrosspostTelegramStatus
+	metaCallbacks *v0.MetaCallbacks
 }
 
 // readAuditHMACKey reads BLOOMARY_AUDIT_HMAC_KEY_PATH (nil when unset). A set but unreadable or short key stops the start.
@@ -284,7 +295,7 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 		return nil, nil, errors.New("BLOOMARY_CROSSPOST_ENABLED needs the credentials keyring (BLOOMARY_KEYRING_PATH)")
 	}
 	cfg := setup.config
-	built := &v0.CrosspostStories{StatusLine: stories.CrosspostStatusLine, LinkedInLine: stories.LinkedInStatusLine}
+	built := &v0.CrosspostStories{StatusLine: stories.CrosspostStatusLine, LinkedInLine: stories.LinkedInStatusLine, SummaryLine: stories.PublicationSummaryLine}
 	var errs []error
 	collect := func(err error) { errs = append(errs, err) }
 	built.ListNetworks, err = stories.NewListNetworksStory(repos, connectors)
@@ -312,6 +323,8 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 	collect(err)
 	built.Status, err = stories.NewPublicationStatusStory(repos, store.scheduledPostRepo)
 	collect(err)
+	built.List, err = stories.NewListPublicationsStory(repos, publications, store.scheduledPostRepo)
+	collect(err)
 	hooks := []crosspostDomain.DeliveryFinished{}
 	metricsHook, err := stories.NewCrosspostMetricsHook(metrics.MustInitCrosspostDeliveriesMetric())
 	collect(err)
@@ -320,6 +333,21 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 		push, err := stories.NewCrosspostPushHook(notifications)
 		collect(err)
 		hooks = append(hooks, push)
+	}
+	if setup.bot != nil {
+		requests, err := videostudioRepo.NewRequestRepository(store.db)
+		collect(err)
+		setup.statusHook, err = stories.NewCrosspostTelegramStatus(store.telegramLinkRepo, setup.bot, built.Status, built.Cancel, built.Retry, requests,
+			telegramDomain.NewMemberSet(cfg.VideoStudioMemberIDs))
+		collect(err)
+		hooks = append(hooks, setup.statusHook)
+	}
+	if cfg.MetaAppSecret != "" {
+		signed, err := metaGate.NewDeletionCallback(cfg.MetaAppSecret)
+		collect(err)
+		story, err := stories.NewMetaCallbackStory(connections, built.RemoveConn, repos.Audit)
+		collect(err)
+		setup.metaCallbacks = &v0.MetaCallbacks{Requests: signed, Story: story, StatusURL: strings.TrimRight(cfg.BloomaryAPIRootURL, "/") + "/api/meta/data-deletion/status"}
 	}
 	worker, err := stories.NewDeliveryWorker(repos, vault, guard, publishers, connectors, store.draftRepo, 30*time.Second, hooks)
 	collect(err)
@@ -339,6 +367,7 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 		return nil, nil, err
 	}
 	setup.workers = append(setup.workers, worker.RunWorker, checker.Run, retention.Run, keys.RunCounts)
+	setup.repos, setup.media = repos, gates.media
 	return built, deletion, nil
 }
 

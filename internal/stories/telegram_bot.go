@@ -28,6 +28,9 @@ const (
 	botSavedReply   = "Saved as a new idea. (To change a post, reply to its preview instead.)"
 	botNumbers      = "Got your weekly numbers. They go into Sunday's report."
 	keyPlanned      = "📅 My posts"
+	keyVideo        = "🎬 Video"
+	botHelpStudio   = "\n\n🎬 Video turns an idea into a video and posts it to your networks after you approve the video and the text."
+	botVideoHint    = "\n\n(For a video, reply to the 🎬 message.)"
 	keyPlannedOld   = "📅 Planned posts"
 	keyHelp         = "❓ Help"
 	botUnlinked     = "Unlinked. Ideas you sent stay in your Bloomary account; connected AI apps can still read them."
@@ -48,8 +51,11 @@ var botCommandPattern = regexp.MustCompile(`^/[a-z_]+(@\w+)?$`)
 // weeklyNumbersPattern matches a weekly numbers message ("numbers: ...", or "Numbers, ..." from voice); "Numbers show …" is an idea.
 var weeklyNumbersPattern = regexp.MustCompile(`(?i)^\s*numbers\s*[:,]`)
 
-// botKeyboard is the persistent reply keyboard: the main way to use the bot.
-var botKeyboard = [][]string{{keyPlanned, keyHelp}}
+// botKeyboard is the persistent reply keyboard: the main way to use the bot; studio members also get 🎬 Video.
+var (
+	botKeyboard    = [][]string{{keyPlanned, keyHelp}}
+	studioKeyboard = [][]string{{keyVideo}, {keyPlanned, keyHelp}}
+)
 
 // BotCommands is the command menu registered with setMyCommands: empty, the keyboard buttons are the way in
 // (/planned and /help still work when typed).
@@ -65,6 +71,8 @@ type TelegramBotHandlers struct {
 	VoiceMembers telegramDomain.MemberSet
 	// NumbersMembers get the weekly-numbers reply; for others a "numbers:" message is a plain idea.
 	NumbersMembers telegramDomain.MemberSet
+	// StudioMembers get the 🎬 Video key and its help line (the /video command handler comes in Commands).
+	StudioMembers telegramDomain.MemberSet
 }
 
 var linkNoncePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{32}$`)
@@ -80,6 +88,7 @@ type telegramBot struct {
 	commands    []telegramDomain.CommandHandler
 	voice       telegramDomain.MemberSet
 	numbers     telegramDomain.MemberSet
+	studio      telegramDomain.MemberSet
 	platformURL string
 	// notLinkedAt throttles the "not linked" answer to one per Telegram user per notLinkedTTL; each ID is
 	// forgotten notLinkedTTL after it was stored (the privacy policy says at most one hour).
@@ -100,7 +109,7 @@ func NewTelegramBot(
 	}
 	return &telegramBot{links: links, bot: bot, transcriber: transcriber, insights: insights, accounts: accounts,
 		replies: handlers.Replies, callbacks: handlers.Callbacks, commands: handlers.Commands, platformURL: strings.TrimRight(platformURL, "/"),
-		voice: handlers.VoiceMembers, numbers: handlers.NumbersMembers,
+		voice: handlers.VoiceMembers, numbers: handlers.NumbersMembers, studio: handlers.StudioMembers,
 		notLinkedAt: map[int64]time.Time{}, notLinkedTTL: notLinkedRepeat}, nil
 }
 
@@ -124,7 +133,7 @@ func (s *telegramBot) HandleUpdate(ctx context.Context, update telegramDomain.Up
 	err := s.handleMessage(ctx, message)
 	if err != nil {
 		// The update was answered with 200 before it was handled, so Telegram will not resend it: tell the member.
-		if replyErr := s.reply(ctx, message.ChatID, botFailed); replyErr != nil {
+		if replyErr := s.reply(ctx, message.ChatID, "", botFailed); replyErr != nil {
 			logger.FromContext(ctx).WithError(replyErr).Info("telegram_failure_reply_failed")
 		}
 	}
@@ -151,6 +160,9 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 	if text == keyPlanned || text == keyPlannedOld {
 		command = "/planned"
 	}
+	if text == keyVideo && s.studio[link.MemberID] {
+		command = "/video"
+	}
 	for _, handler := range s.commands {
 		if command == handler.Command() {
 			return handler.HandleCommand(ctx, link, message.ChatID)
@@ -164,7 +176,7 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 		_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: message.ChatID, Text: botUnlinked, RemoveKeyboard: true})
 		return err
 	case isCommand, text == keyHelp:
-		return s.reply(ctx, message.ChatID, s.help(link.MemberID))
+		return s.reply(ctx, message.ChatID, link.MemberID, s.help(link.MemberID))
 	case message.ReplyToMessageID != 0 && len(s.replies) > 0:
 		handled, err := s.handleReply(ctx, link, message)
 		if handled || err != nil {
@@ -176,13 +188,16 @@ func (s *telegramBot) handleMessage(ctx context.Context, message *telegramDomain
 	if message.ReplyToBot {
 		saved = botSavedReply
 	}
+	if s.studio[link.MemberID] {
+		saved += botVideoHint
+	}
 	switch {
 	case message.Voice != nil:
 		return s.saveVoice(ctx, link, message)
 	case text != "":
 		return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceText, s.confirmation(link.MemberID, text, saved))
 	default:
-		return s.reply(ctx, message.ChatID, botUnsupported)
+		return s.reply(ctx, message.ChatID, link.MemberID, botUnsupported)
 	}
 }
 
@@ -220,19 +235,23 @@ func (s *telegramBot) confirmation(memberID, text, saved string) string {
 }
 
 func (s *telegramBot) help(memberID string) string {
+	help := botHelpText
 	if s.voice[memberID] && s.transcriber != nil {
-		return botHelpVoice
+		help = botHelpVoice
 	}
-	return botHelpText
+	if s.studio[memberID] {
+		help += botHelpStudio
+	}
+	return help
 }
 
 func (s *telegramBot) askLink(ctx context.Context, chatID int64, nonce string) error {
 	if !linkNoncePattern.MatchString(nonce) {
-		return s.reply(ctx, chatID, "This link is not valid. Start again in Bloomary → Settings → Telegram.")
+		return s.reply(ctx, chatID, "", "This link is not valid. Start again in Bloomary → Settings → Telegram.")
 	}
 	attempt, err := s.links.AttemptByNonce(ctx, nonce, time.Now().UTC())
 	if err != nil {
-		return s.reply(ctx, chatID, "This link expired. Start again in Bloomary → Settings → Telegram.")
+		return s.reply(ctx, chatID, "", "This link expired. Start again in Bloomary → Settings → Telegram.")
 	}
 	account := "your Bloomary account"
 	if profile, err := s.accounts.ByMemberID(ctx, attempt.MemberID); err == nil && strings.TrimSpace(profile.Name) != "" {
@@ -272,7 +291,7 @@ func (s *telegramBot) handleCallback(ctx context.Context, callback telegramDomai
 			if link, err := s.links.ByTelegramUser(ctx, callback.From.ID); err == nil {
 				memberID = link.MemberID
 			}
-			return s.reply(ctx, callback.ChatID, s.help(memberID))
+			return s.reply(ctx, callback.ChatID, memberID, s.help(memberID))
 		}
 		return nil
 	}
@@ -320,9 +339,13 @@ func (s *telegramBot) saveVoice(ctx context.Context, link telegramDomain.Link, m
 		return err
 	}
 	if failure != "" {
-		return s.reply(ctx, message.ChatID, failure)
+		return s.reply(ctx, message.ChatID, link.MemberID, failure)
 	}
-	return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceVoice, s.confirmation(link.MemberID, text, "Saved: “"+snippet(text)+"”\n\n"+botSavedTail))
+	saved := "Saved: “" + snippet(text) + "”\n\n" + botSavedTail
+	if s.studio[link.MemberID] {
+		saved += botVideoHint
+	}
+	return s.saveInsight(ctx, link, message.ChatID, text, insightDomain.SourceVoice, s.confirmation(link.MemberID, text, saved))
 }
 
 // handleReply passes a reply to one of the bot's messages to the first reply handler that owns it; handled is
@@ -344,7 +367,7 @@ func (s *telegramBot) handleReply(ctx context.Context, link telegramDomain.Link,
 		return false, nil
 	}
 	if claim.Refusal != "" {
-		return true, s.reply(ctx, message.ChatID, claim.Refusal)
+		return true, s.reply(ctx, message.ChatID, link.MemberID, claim.Refusal)
 	}
 	text, source := strings.TrimSpace(message.Text), string(insightDomain.SourceText)
 	if message.Voice != nil {
@@ -354,18 +377,21 @@ func (s *telegramBot) handleReply(ctx context.Context, link telegramDomain.Link,
 			if err != nil {
 				return true, err
 			}
-			return true, s.reply(ctx, message.ChatID, failure)
+			return true, s.reply(ctx, message.ChatID, link.MemberID, failure)
 		}
 		source = string(insightDomain.SourceVoice)
 	}
 	if text == "" {
-		return true, s.reply(ctx, message.ChatID, botUnsupported)
+		return true, s.reply(ctx, message.ChatID, link.MemberID, botUnsupported)
 	}
 	confirmation, err := handler.Save(ctx, link, claim, text, source)
 	if err != nil {
 		return true, err
 	}
-	s.confirm(ctx, message.ChatID, confirmation)
+	// A handler that answered with its own message (the video studio) returns no confirmation.
+	if confirmation != "" {
+		s.confirm(ctx, message.ChatID, link.MemberID, confirmation)
+	}
 	return true, nil
 }
 
@@ -412,7 +438,7 @@ func (s *telegramBot) saveInsight(ctx context.Context, link telegramDomain.Link,
 			return err
 		}
 		if !ok {
-			return s.reply(ctx, chatID, botTextLimit)
+			return s.reply(ctx, chatID, link.MemberID, botTextLimit)
 		}
 	}
 	if utf8.RuneCountInString(text) > insightDomain.MaxTextRunes {
@@ -422,14 +448,14 @@ func (s *telegramBot) saveInsight(ctx context.Context, link telegramDomain.Link,
 	if err != nil {
 		return err
 	}
-	s.confirm(ctx, chatID, confirmation)
+	s.confirm(ctx, chatID, link.MemberID, confirmation)
 	return nil
 }
 
 // confirm sends the reply after a successful save; a failure is only logged, so the member is never told
 // "wasn't saved" (and never resends) when the idea is already stored.
-func (s *telegramBot) confirm(ctx context.Context, chatID int64, text string) {
-	if err := s.reply(ctx, chatID, text); err != nil {
+func (s *telegramBot) confirm(ctx context.Context, chatID int64, memberID, text string) {
+	if err := s.reply(ctx, chatID, memberID, text); err != nil {
 		logger.FromContext(ctx).WithError(err).Info("telegram_confirmation_failed")
 	}
 }
@@ -449,8 +475,13 @@ func (s *telegramBot) underLimit(ctx context.Context, memberID string, source in
 	return count < limit, nil
 }
 
-func (s *telegramBot) reply(ctx context.Context, chatID int64, text string) error {
-	_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: text, Keyboard: botKeyboard})
+// reply answers with the persistent keyboard: studio members' has the 🎬 Video key (memberID "" = not known yet).
+func (s *telegramBot) reply(ctx context.Context, chatID int64, memberID, text string) error {
+	keyboard := botKeyboard
+	if s.studio[memberID] {
+		keyboard = studioKeyboard
+	}
+	_, err := s.bot.SendMessage(ctx, telegramDomain.OutgoingMessage{ChatID: chatID, Text: text, Keyboard: keyboard})
 	return err
 }
 

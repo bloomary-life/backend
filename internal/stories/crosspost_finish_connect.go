@@ -53,7 +53,11 @@ func (s *finishConnectStory) FinishConnect(ctx context.Context, input crosspostD
 	if err != nil {
 		return crosspostDomain.FinishConnectOutput{}, err
 	}
-	connection := crosspostDomain.Connection{ID: newCrosspostID(), MemberID: input.MemberID, Provider: state.Provider, AppOwner: state.AppOwner, AccountID: candidates[0].AccountID}
+	accountID := candidates[0].AccountID
+	if credentials.AccountID != "" {
+		accountID = credentials.AccountID
+	}
+	connection := crosspostDomain.Connection{ID: newCrosspostID(), MemberID: input.MemberID, Provider: state.Provider, AppOwner: state.AppOwner, AccountID: accountID}
 	expectedVersion := 0
 	for _, existing := range connections {
 		if existing.Provider == state.Provider && existing.AppOwner == state.AppOwner {
