@@ -52,13 +52,19 @@ func TestPublishGuardDecide(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, crosspostDomain.DecisionSimulate, decision)
 
-	live, err := NewPublishGuard(pauseRows{}, PublishGuardConfig{Mode: crosspostDomain.ModeLive})
+	live, err := NewPublishGuard(pauseRows{}, PublishGuardConfig{Mode: crosspostDomain.ModeLive, LiveDestinationIDs: []string{"dest-other"}})
 	require.NoError(t, err)
 	decision, err = live.Decide(ctx, delivery)
 	require.NoError(t, err)
-	require.Equal(t, crosspostDomain.DecisionPublish, decision)
+	require.Equal(t, crosspostDomain.DecisionPublish, decision, "live posts every destination; the list is not used")
 
-	allowlisted, err := NewPublishGuard(pauseRows{}, PublishGuardConfig{Mode: crosspostDomain.ModeLive, LiveDestinationIDs: []string{"dest-test"}})
+	emptyAllowlist, err := NewPublishGuard(pauseRows{}, PublishGuardConfig{Mode: crosspostDomain.ModeLiveAllowlist})
+	require.NoError(t, err)
+	decision, err = emptyAllowlist.Decide(ctx, delivery)
+	require.NoError(t, err)
+	require.Equal(t, crosspostDomain.DecisionSimulate, decision, "an empty allowlist posts nothing for real")
+
+	allowlisted, err := NewPublishGuard(pauseRows{}, PublishGuardConfig{Mode: crosspostDomain.ModeLiveAllowlist, LiveDestinationIDs: []string{"dest-test"}})
 	require.NoError(t, err)
 	decision, err = allowlisted.Decide(ctx, delivery)
 	require.NoError(t, err)

@@ -87,11 +87,12 @@ type Config struct {
 	WeeklyNumbersMemberIDs []string `env:"BLOOMARY_WEEKLY_NUMBERS_MEMBER_IDS" envSeparator:","`
 
 	// Cross-posting (nothing posts yet). No hostname defaults here: public repo.
-	// PublishMode "live" posts for real; unset or any other value = dry_run (publisher not called, delivery simulated).
+	// PublishMode: "live" (prod) posts everything for real; "live_allowlist" (stage) posts for real only to
+	// LiveDestinationIDs (empty = nothing); unset or any other value = dry_run (publisher not called, delivery simulated).
 	PublishMode string `env:"BLOOMARY_PUBLISH_MODE"`
 	// PublishingPaused is the fallback for the DB pause switch (bloomary_publish_pause): true pauses every network.
 	PublishingPaused bool `env:"BLOOMARY_PUBLISHING_PAUSED"`
-	// LiveDestinationIDs: in live mode, only these destinations post for real when the list is set (stage).
+	// LiveDestinationIDs: the only destinations that post for real in live_allowlist mode.
 	LiveDestinationIDs []string `env:"BLOOMARY_LIVE_DESTINATION_IDS" envSeparator:","`
 	// CredentialsKeyringFile is the vault keyring file (prod: systemd LoadCredential=, %d/bloomary-keyring; stage: read-only mount). Unset = no vault.
 	CredentialsKeyringFile string `env:"BLOOMARY_KEYRING_PATH"`

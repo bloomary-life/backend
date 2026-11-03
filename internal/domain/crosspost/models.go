@@ -282,20 +282,24 @@ const (
 	DecisionSimulate GuardDecision = "simulate"
 )
 
-// PublishMode: dry_run (default when unset or invalid) or live.
+// PublishMode: dry_run (default when unset or invalid), live_allowlist (stage: real only for the listed
+// destinations; an empty list = nothing real) or live (prod: everything real).
 type PublishMode string
 
 const (
-	ModeDryRun PublishMode = "dry_run"
-	ModeLive   PublishMode = "live"
+	ModeDryRun        PublishMode = "dry_run"
+	ModeLiveAllowlist PublishMode = "live_allowlist"
+	ModeLive          PublishMode = "live"
 )
 
-// ParsePublishMode returns live only for "live"; anything else is dry_run.
+// ParsePublishMode returns live_allowlist or live only for exactly those words; anything else is dry_run.
 func ParsePublishMode(value string) PublishMode {
-	if PublishMode(value) == ModeLive {
-		return ModeLive
+	switch mode := PublishMode(value); mode {
+	case ModeLiveAllowlist, ModeLive:
+		return mode
+	default:
+		return ModeDryRun
 	}
-	return ModeDryRun
 }
 
 // AllNetworks is the pause row that stops every network at once.

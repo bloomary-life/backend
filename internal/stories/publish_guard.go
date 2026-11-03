@@ -22,7 +22,8 @@ type publishGuard struct {
 }
 
 // NewPublishGuard: the pause switch is the DB row (per network or "all"), with the env flag as a fallback that
-// pauses everything; publishing is real only in live mode, and only for the allowlisted destinations when a list is set.
+// pauses everything. Publishing is real in live mode; in live_allowlist mode only for the listed destinations
+// (an empty list posts nothing for real); dry_run (the default) simulates everything.
 func NewPublishGuard(pause crosspostDomain.PauseStore, config PublishGuardConfig) (crosspostDomain.PublishGuard, error) {
 	if pause == nil {
 		return nil, fmt.Errorf("publish guard: pause store is required")
@@ -44,11 +45,12 @@ func (g *publishGuard) Paused(ctx context.Context, network crosspostDomain.Netwo
 }
 
 func (g *publishGuard) Decide(_ context.Context, delivery crosspostDomain.Delivery) (crosspostDomain.GuardDecision, error) {
-	if g.mode != crosspostDomain.ModeLive {
+	switch {
+	case g.mode == crosspostDomain.ModeLive:
+		return crosspostDomain.DecisionPublish, nil
+	case g.mode == crosspostDomain.ModeLiveAllowlist && g.live[delivery.DestinationID]:
+		return crosspostDomain.DecisionPublish, nil
+	default:
 		return crosspostDomain.DecisionSimulate, nil
 	}
-	if len(g.live) > 0 && !g.live[delivery.DestinationID] {
-		return crosspostDomain.DecisionSimulate, nil
-	}
-	return crosspostDomain.DecisionPublish, nil
 }

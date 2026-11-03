@@ -29,6 +29,7 @@ func TestDeliveryValidTransitions(t *testing.T) {
 func TestParsePublishModeDefaultsToDryRun(t *testing.T) {
 	// Verifies: BE-040
 	require.Equal(t, ModeLive, ParsePublishMode("live"))
+	require.Equal(t, ModeLiveAllowlist, ParsePublishMode("live_allowlist"))
 	require.Equal(t, ModeDryRun, ParsePublishMode(""))
 	require.Equal(t, ModeDryRun, ParsePublishMode("LIVE!"))
 }
