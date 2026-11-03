@@ -40,6 +40,7 @@ func newSentryAggregator(loggerConfig config) (*sentryAggregator, error) {
 			Dsn:         dsn,
 			Environment: loggerConfig.appEnvironment,
 			Release:     loggerConfig.appVersion,
+			BeforeSend:  scrubSentryEvent,
 		},
 	); err != nil {
 		return nil, fmt.Errorf("sentry init failed: %w", err)
