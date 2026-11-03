@@ -26,6 +26,7 @@ import (
 	recaptchaDomain "bloomary-api/internal/domain/recaptcha"
 	resendDomain "bloomary-api/internal/domain/resend"
 	reviewDomain "bloomary-api/internal/domain/review"
+	crosspostDomain "bloomary-api/internal/domain/crosspost"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
 	telegramDomain "bloomary-api/internal/domain/telegram"
 	apnsGate "bloomary-api/internal/gates/apns"
@@ -91,6 +92,12 @@ func main() {
 	if err := postPublishRepo.InitTable(ctx); err != nil {
 		appLogger.Fatal(err)
 	}
+	if len(os.Args) > 1 && os.Args[1] == "replay-deletions" {
+		if err := replayDeletions(ctx, config, store, postPublishRepo, os.Args[2:]); err != nil {
+			appLogger.Fatal(err)
+		}
+		return
+	}
 	metricsRepoImpl, err := metricsRepo.NewMetricsRepository(store.db)
 	if err != nil {
 		appLogger.Fatal(fmt.Errorf("init metrics repository: %w", err))
@@ -108,6 +115,7 @@ func main() {
 		appLogger.Fatal(fmt.Errorf("init credential vault: %w", err))
 	}
 	logCrosspostConfig(appLogger, config, credentialVault)
+	crosspost := &crosspostSetup{vault: credentialVault, config: config}
 
 	outboundDuration := metrics.MustInitOutboundHTTPRequestDurationMetric()
 	outboundInFlight := metrics.MustInitOutboundHTTPInFlightMetric()
@@ -211,10 +219,13 @@ func main() {
 	go pruneVoiceAttempts(ctx, store.insightRepo)
 	appStories, err := newApplicationStories(
 		store, draftImageStore, linkedInGate, resendGate, recaptchaGate,
-		appleVerifier, appleVerifier, paddleAPI, quota, flows, userBot, transcriber, handlerCfg,
+		appleVerifier, appleVerifier, paddleAPI, quota, flows, userBot, transcriber, handlerCfg, crosspost,
 	)
 	if err != nil {
 		appLogger.Fatal(fmt.Errorf("init application stories: %w", err))
+	}
+	for _, worker := range crosspost.workers {
+		go worker(ctx)
 	}
 	if userBot != nil {
 		// The command menu is best effort: the bot works without it.
@@ -388,6 +399,7 @@ func newApplicationStories(
 	userBot telegramDomain.Gate,
 	transcriber telegramDomain.Transcriber,
 	config v0.Config,
+	crosspost *crosspostSetup,
 ) (v0.ApplicationStories, error) {
 	access, err := stories.NewEntitlementAccessStory(store.accountRepo, store.paddleRepo, store.appleEntitlementRepo, store.trialRepo, store.dailyRepo)
 	if err != nil {
@@ -398,6 +410,18 @@ func newApplicationStories(
 		return v0.ApplicationStories{}, err
 	}
 	schedule, err := stories.NewLinkedInScheduleStory(store.scheduledPostRepo, store.accountRepo, store.draftRepo, draftImages, access, linkedIn, post, config.ScheduledPostInterval, config.ScheduleMaxDays, config.Notifications)
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
+	publishGuard, err := stories.NewPublishGuard(store.publishPause, stories.PublishGuardConfig{
+		Mode: crosspostDomain.ParsePublishMode(crosspost.config.PublishMode), LiveDestinationIDs: crosspost.config.LiveDestinationIDs, EnvPaused: crosspost.config.PublishingPaused})
+	if err != nil {
+		return v0.ApplicationStories{}, err
+	}
+	if guarded, ok := schedule.(interface{ UseGuard(crosspostDomain.PublishGuard) }); ok {
+		guarded.UseGuard(publishGuard)
+	}
+	crosspostStories, crosspostDeletion, err := newCrosspostStories(crosspost, store, draftImages, access, schedule, publishGuard, config.Notifications)
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
@@ -498,12 +522,7 @@ func newApplicationStories(
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
-	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo, store.mcpOAuthState, store.scheduledPostRepo}
-	memberData = append(memberData, store.crosspostMemberData...)
-	if events, ok := config.ProductEvents.(accountDomain.MemberDataDeleter); ok {
-		memberData = append(memberData, events)
-	}
-	accountDeletion, err := stories.NewAccountDeletionStoryWithMemberData(store.dailyRepo, store.draftRepo, store.accountRepo, memberData, draftImages)
+	accountDeletion, err := newAccountDeletion(store, crosspostDeletion, memberDataDeleters(store, config.ProductEvents), draftImages, crosspost.config.DatabasePath)
 	if err != nil {
 		return v0.ApplicationStories{}, err
 	}
@@ -584,7 +603,18 @@ func newApplicationStories(
 		AppleTransaction: appleSync, AppleNotifications: appleNotifications,
 		PaddleWebhook: paddleWebhook, PaddleBilling: paddleBilling, AccountDeletion: accountDeletion,
 		Access: access, ScheduledPost: schedule, MCPAuthorization: mcpAuthorization, MCPTokenVerifier: mcpTokenVerifier, MCPGrants: store.mcpOAuthState,
+		PublishGuard: publishGuard, Crosspost: crosspostStories,
 	}, nil
+}
+
+// memberDataDeleters are the feature data account deletion removes after the drafts.
+func memberDataDeleters(store *authStore, productEvents any) []accountDomain.MemberDataDeleter {
+	memberData := []accountDomain.MemberDataDeleter{store.insightRepo, store.telegramLinkRepo, store.reviewRepo, store.mcpOAuthState, store.scheduledPostRepo}
+	memberData = append(memberData, store.crosspostMemberData...)
+	if events, ok := productEvents.(accountDomain.MemberDataDeleter); ok {
+		memberData = append(memberData, events)
+	}
+	return memberData
 }
 
 // newUserBotGates builds the user Telegram bot and its Deepgram transcriber.

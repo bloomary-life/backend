@@ -10,6 +10,7 @@ import (
 
 	accountDomain "bloomary-api/internal/domain/account"
 	appleiapDomain "bloomary-api/internal/domain/appleiap"
+	crosspostDomain "bloomary-api/internal/domain/crosspost"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	feedbackDomain "bloomary-api/internal/domain/feedback"
@@ -115,6 +116,8 @@ type service struct {
 	telegramQueueOnce     sync.Once
 	telegramQueue         *telegramUpdateQueue
 	mcpHandler            http.Handler
+	publishGuard          crosspostDomain.PublishGuard
+	crosspost             *CrosspostStories
 }
 
 func (s *service) setPlatformCORS(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +177,10 @@ type ApplicationStories struct {
 	// TelegramBot and TelegramLink stay nil when the user bot token is not configured.
 	TelegramBot  telegramDomain.BotStory
 	TelegramLink telegramDomain.LinkStory
+	// PublishGuard pauses Post now with the publishing pause switch (nil = never paused).
+	PublishGuard crosspostDomain.PublishGuard
+	// Crosspost stays nil while BLOOMARY_CROSSPOST_ENABLED is off.
+	Crosspost *CrosspostStories
 }
 
 func NewService(
@@ -254,6 +261,8 @@ func NewService(
 		scheduledPostStory:    appStories.ScheduledPost,
 		telegramBotStory:      appStories.TelegramBot,
 		telegramLinkStory:     appStories.TelegramLink,
+		publishGuard:          appStories.PublishGuard,
+		crosspost:             appStories.Crosspost,
 	}
 	if err := svc.webSessions.load(config.WebSessionPath); err != nil {
 		return nil, err
@@ -333,6 +342,20 @@ func (s *service) Mux(ctx context.Context) *http.ServeMux {
 	handle("/api/linkedin/cli/result", s.LinkedInCLIResult)
 	handle("/api/telegram/webhook", s.TelegramWebhook)
 	handle("/api/telegram/link", s.TelegramLink)
+	if s.crosspost != nil {
+		handle("/api/content-rules", s.ContentRules)
+		handle("/api/networks", s.Networks)
+		handle("/api/networks/connect", s.NetworksConnect)
+		handle("/api/networks/callback", s.NetworksCallback)
+		handle("/api/networks/test", s.NetworksTest)
+		handle("/api/networks/connection", s.NetworksConnection)
+		handle("/api/networks/destination", s.NetworksDestination)
+		handle("/api/publications", s.Publications)
+		handle("/api/publications/approve", s.PublicationsApprove)
+		handle("/api/publications/delivery", s.PublicationsDelivery)
+		handle("/api/publications/cancel", s.PublicationsCancel)
+		handle("/api/publications/retry", s.PublicationsRetry)
+	}
 	mux.Handle("/mcp", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mcpHandler.ServeHTTP(w, r.WithContext(appLogger.ToContext(r.Context())))
 	}))

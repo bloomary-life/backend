@@ -96,6 +96,18 @@ type Config struct {
 	LiveDestinationIDs []string `env:"BLOOMARY_LIVE_DESTINATION_IDS" envSeparator:","`
 	// CredentialsKeyringFile is the vault keyring file (prod: systemd LoadCredential=, %d/bloomary-keyring; stage: read-only mount). Unset = no vault.
 	CredentialsKeyringFile string `env:"BLOOMARY_KEYRING_PATH"`
+	// CrosspostEnabled turns on the networks, publications and content-rules API and the crosspost workers; off = no
+	// behaviour change for members.
+	CrosspostEnabled bool `env:"BLOOMARY_CROSSPOST_ENABLED"`
+	// ConnectMemberIDs may connect networks; empty = everyone.
+	ConnectMemberIDs []string `env:"BLOOMARY_CONNECT_MEMBER_IDS" envSeparator:","`
+	// NetworksRedirectURI is the web page providers send the member back to (Settings → Networks callback).
+	NetworksRedirectURI  string `env:"BLOOMARY_NETWORKS_REDIRECT_URI"`
+	XPostsPerDay         int    `env:"BLOOMARY_X_POSTS_PER_DAY" envDefault:"1"`
+	YouTubeUploadsPerDay int    `env:"BLOOMARY_YOUTUBE_UPLOADS_PER_DAY"`
+	// AuditHMACKey keys the member ID that replaces a deleted member's audit rows (rotated yearly); empty = a random
+	// key per deletion.
+	AuditHMACKey string `env:"BLOOMARY_AUDIT_HMAC_KEY"`
 }
 
 type PositiveFloat float64

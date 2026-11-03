@@ -482,6 +482,258 @@ paths:
           $ref: "#/components/responses/APIError"
         default:
           $ref: "#/components/responses/APIError"
+  /api/content-rules:
+    get:
+      operationId: getContentRules
+      security: []
+      description: Cross-posting limits and counting per network (crosspost.Rules). Only when BLOOMARY_CROSSPOST_ENABLED.
+      responses:
+        "200":
+          description: Rules keyed by network.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  networks:
+                    type: object
+                    additionalProperties:
+                      type: object
+  /api/networks:
+    get:
+      operationId: listNetworks
+      description: "Settings → Networks: connections, destinations (no tokens) and the providers open to connect."
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworksResponse"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/networks/connect:
+    post:
+      operationId: startNetworkConnect
+      description: Starts a provider login (single-use state, 10 minutes, PKCE kept on the server); returns the provider's authorization URL.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectResponse"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/networks/callback:
+    post:
+      operationId: finishNetworkConnect
+      description: Finishes the login from the web callback page; offered destinations start turned off. A reconnect to another account answers 409 different_account.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectCallbackRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectCallbackResponse"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/networks/test:
+    post:
+      operationId: testNetworkConnection
+      description: Checks one connection now.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectionIDRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestConnectionResponse"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/networks/connection:
+    delete:
+      operationId: removeNetworkConnection
+      description: Revokes and removes a connection and its destinations; their unstarted posts are cancelled.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+        - name: connectionId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Done.
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/networks/destination:
+    put:
+      operationId: setNetworkDestination
+      description: Turns a destination on or off and sets its audience time zone (IANA).
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDestinationRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Destination"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/publications:
+    get:
+      operationId: getPublication
+      description: A publication with every delivery's status line; the LinkedIn part's status is read from the scheduled post. 404 "This post isn't in your account."
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+        - name: publicationId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Publication"
+        default:
+          $ref: "#/components/responses/APIError"
+    post:
+      operationId: preparePublication
+      description: Makes a publication with proposed deliveries and a proposed LinkedIn time. Nothing posts. 409 open_publication when the draft has one.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Publication"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/publications/approve:
+    post:
+      operationId: approvePublication
+      description: "Idempotent approval: YouTube choices needed (422 youtube_choices), text problems block (422 problems), media frozen, LinkedIn scheduled through the existing engine."
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Publication"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/publications/delivery:
+    put:
+      operationId: editDelivery
+      description: Edits one delivery before it starts; omitted fields stay; an old version answers 409 changed.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditDeliveryRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Delivery"
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/publications/cancel:
+    post:
+      operationId: cancelDelivery
+      description: Cancels one unstarted delivery, or without deliveryId all of them and the LinkedIn post.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliveryRequest"
+      responses:
+        "204":
+          description: Done.
+        default:
+          $ref: "#/components/responses/APIError"
+  /api/publications/retry:
+    post:
+      operationId: retryDelivery
+      description: Schedules a failed, needs_review or needs_reconnect delivery now, after the member says so.
+      parameters:
+        - $ref: "#/components/parameters/MemberID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliveryRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Delivery"
+        default:
+          $ref: "#/components/responses/APIError"
   /healthcheck:
     get:
       operationId: healthCheck
@@ -515,6 +767,13 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+  parameters:
+    MemberID:
+      name: memberId
+      in: query
+      required: true
+      schema:
+        type: string
   responses:
     APIError:
       description: API error.
@@ -928,3 +1187,173 @@ components:
         email:
           type: string
           format: email
+    NetworksResponse:
+      type: object
+      properties:
+        connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Connection"
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Destination"
+        open:
+          type: array
+          items:
+            type: string
+            enum: [x, meta, google, tiktok]
+    Connection:
+      type: object
+      properties:
+        id: {type: string}
+        provider: {type: string, enum: [x, meta, google, tiktok]}
+        appOwner: {type: string, enum: [bloomary, member]}
+        health: {type: string, enum: [connected, needs_reconnect, "off"]}
+        expiresAt: {type: string, format: date-time}
+    Destination:
+      type: object
+      properties:
+        id: {type: string}
+        connectionId: {type: string}
+        network: {type: string, enum: [x, facebook_page, instagram, youtube, tiktok]}
+        accountId: {type: string}
+        accountName: {type: string}
+        audienceZone: {type: string}
+        enabled: {type: boolean}
+    ConnectRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider: {type: string, enum: [x, meta, google, tiktok]}
+        appOwner: {type: string, enum: [bloomary, member]}
+    ConnectResponse:
+      type: object
+      properties:
+        authorizationUrl: {type: string}
+    ConnectCallbackRequest:
+      type: object
+      required: [code, state]
+      properties:
+        code: {type: string}
+        state: {type: string}
+    ConnectCallbackResponse:
+      type: object
+      properties:
+        connection:
+          $ref: "#/components/schemas/Connection"
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Destination"
+    ConnectionIDRequest:
+      type: object
+      required: [connectionId]
+      properties:
+        connectionId: {type: string}
+    TestConnectionResponse:
+      type: object
+      properties:
+        health: {type: string}
+        message: {type: string}
+    SetDestinationRequest:
+      type: object
+      required: [destinationId, enabled]
+      properties:
+        destinationId: {type: string}
+        audienceZone: {type: string}
+        enabled: {type: boolean}
+    PrepareRequest:
+      type: object
+      required: [draftId, destinationIds]
+      properties:
+        draftId: {type: string}
+        destinationIds:
+          type: array
+          items: {type: string}
+        includeLinkedIn: {type: boolean}
+    ApproveRequest:
+      type: object
+      required: [publicationId]
+      properties:
+        publicationId: {type: string}
+        allNow: {type: boolean}
+        linkedInAt: {type: string, format: date-time}
+        skipLinkedIn: {type: boolean}
+    EditDeliveryRequest:
+      type: object
+      required: [publicationId, deliveryId, version]
+      properties:
+        publicationId: {type: string}
+        deliveryId: {type: string}
+        version: {type: integer}
+        text: {type: string}
+        title: {type: string}
+        hashtags:
+          type: array
+          items: {type: string}
+        publishAt: {type: string, format: date-time}
+        youtube:
+          $ref: "#/components/schemas/YouTubeChoices"
+        aiLabel: {type: boolean}
+        skip: {type: boolean}
+    DeliveryRequest:
+      type: object
+      required: [publicationId]
+      properties:
+        publicationId: {type: string}
+        deliveryId: {type: string}
+    YouTubeChoices:
+      type: object
+      properties:
+        privacy: {type: string, enum: [public, unlisted, private, ""]}
+        madeForKids: {type: boolean, nullable: true}
+    Delivery:
+      type: object
+      properties:
+        id: {type: string}
+        destinationId: {type: string}
+        network: {type: string}
+        text: {type: string}
+        title: {type: string}
+        hashtags:
+          type: array
+          items: {type: string}
+        mediaSha256: {type: string}
+        aiLabel: {type: boolean}
+        youtube:
+          $ref: "#/components/schemas/YouTubeChoices"
+        publishAt: {type: string, format: date-time}
+        status: {type: string, enum: [proposed, skipped, scheduled, publishing, published, sent_to_inbox, needs_review, needs_reconnect, failed, cancelled, simulated]}
+        skipReason: {type: string}
+        warnings:
+          type: array
+          items: {type: string}
+        problems:
+          type: array
+          items: {type: string}
+        externalUrl: {type: string}
+        attempts: {type: integer}
+        version: {type: integer}
+        line: {type: string, description: Status line (ux.md Table 3).}
+    Publication:
+      type: object
+      properties:
+        id: {type: string}
+        draftId: {type: string}
+        createdAt: {type: string, format: date-time}
+        approvedAt: {type: string, format: date-time}
+        closedAt: {type: string, format: date-time}
+        deliveries:
+          type: array
+          items:
+            $ref: "#/components/schemas/Delivery"
+        linkedIn:
+          type: object
+          nullable: true
+          properties:
+            proposedAt: {type: string, format: date-time}
+            scheduleId: {type: string}
+            status: {type: string}
+            skipReason: {type: string}
+            line: {type: string}

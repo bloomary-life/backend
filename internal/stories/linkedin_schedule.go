@@ -8,6 +8,7 @@ import (
 	"time"
 
 	accountDomain "bloomary-api/internal/domain/account"
+	crosspostDomain "bloomary-api/internal/domain/crosspost"
 	dailyDomain "bloomary-api/internal/domain/daily"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
@@ -30,6 +31,12 @@ type linkedInScheduleStory struct {
 	maxAhead      time.Duration
 	maxAheadDays  int
 	published     scheduleDomain.PublishedHook
+	guard         crosspostDomain.PublishGuard
+}
+
+// UseGuard sets the publish guard whose pause switch the worker reads before claiming; call it before RunWorker.
+func (s *linkedInScheduleStory) UseGuard(guard crosspostDomain.PublishGuard) {
+	s.guard = guard
 }
 
 var _ scheduleDomain.PublishedHooks = (*linkedInScheduleStory)(nil)
@@ -121,6 +128,11 @@ func (s *linkedInScheduleStory) RunWorker(ctx context.Context) {
 }
 
 func (s *linkedInScheduleStory) publishOne(ctx context.Context) bool {
+	if s.guard != nil {
+		if paused, err := s.guard.Paused(ctx, crosspostDomain.LinkedIn); err != nil || paused {
+			return false
+		}
+	}
 	job, err := s.jobs.ClaimDue(ctx, time.Now().UTC())
 	if err != nil {
 		return false

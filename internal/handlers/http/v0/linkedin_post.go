@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	crosspostDomain "bloomary-api/internal/domain/crosspost"
 	dailyDomain "bloomary-api/internal/domain/daily"
 	draftDomain "bloomary-api/internal/domain/draft"
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
@@ -69,6 +70,14 @@ func (s *service) LinkedInPost(w http.ResponseWriter, r *http.Request) {
 		if entitlement.Tier != entitlementDomain.TierPro && entitlement.Tier != entitlementDomain.TierTrial {
 			logger.SetFields(r.Context(), fields).SetField("outcome", "pro_required")
 			writeAPIError(w, http.StatusPaymentRequired, "pro_required", "Publishing needs an active plan.")
+			return
+		}
+	}
+
+	if s.publishGuard != nil {
+		if paused, err := s.publishGuard.Paused(r.Context(), crosspostDomain.LinkedIn); err != nil || paused {
+			logger.SetFields(r.Context(), fields, logger.Err(err)).SetField("outcome", "publishing_paused")
+			writeAPIError(w, http.StatusServiceUnavailable, "publishing_paused", "Publishing is paused. Your post wasn't sent.")
 			return
 		}
 	}
