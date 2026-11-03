@@ -29,4 +29,8 @@ type ExtrasRepository interface {
 	// VideoKeys lists every R2 key (master, captions, cover) of the member's draft videos.
 	VideoKeys(ctx context.Context, memberID string) ([]string, error)
 	DeleteVideosByMemberID(ctx context.Context, memberID string) error
+	// SetVideo links a stored video to the member's draft and returns the keys of the video it replaced.
+	SetVideo(ctx context.Context, memberID, draftID string, video Video) ([]string, error)
+	// DeleteVideos removes the videos of these drafts and returns their keys (draft deletion through sync).
+	DeleteVideos(ctx context.Context, memberID string, draftIDs []string) ([]string, error)
 }

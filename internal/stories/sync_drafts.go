@@ -92,6 +92,16 @@ func (s *SyncDrafts) Sync(
 			purgeImageIDs = append(purgeImageIDs, upsert.DraftID)
 		}
 	}
+	// Deleted drafts lose their video too (master, captions, cover); approved posts keep their own frozen copies.
+	if extras, ok := s.drafts.(draftDomain.ExtrasRepository); ok && len(deletes) > 0 && images != nil {
+		keys, err := extras.DeleteVideos(ctx, memberID, deletes)
+		if err != nil {
+			return nil, perror.New(perror.ErrCodeStoreFailed, err, "draft sync failed")
+		}
+		if err := deleteObjectKeys(ctx, images, keys); err != nil {
+			return nil, err
+		}
+	}
 	if len(purgeImageIDs) > 0 && images != nil {
 		existing, err := s.drafts.Sync(ctx, memberID, nil, nil, draftLimit)
 		if err != nil {
