@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -14,12 +15,19 @@ import (
 	entitlementDomain "bloomary-api/internal/domain/entitlement"
 	notificationDomain "bloomary-api/internal/domain/notification"
 	scheduledDomain "bloomary-api/internal/domain/scheduledpost"
+	mediaGate "bloomary-api/internal/gates/media"
+	metaGate "bloomary-api/internal/gates/meta"
+	objectstoreGate "bloomary-api/internal/gates/objectstore"
 	crosspostRepo "bloomary-api/internal/gates/repositories/crosspost"
 	deletionlogRepo "bloomary-api/internal/gates/repositories/deletionlog"
+	tiktokGate "bloomary-api/internal/gates/tiktok"
 	vaultGate "bloomary-api/internal/gates/vault"
+	xGate "bloomary-api/internal/gates/x"
+	youtubeGate "bloomary-api/internal/gates/youtube"
 	v0 "bloomary-api/internal/handlers/http/v0"
 	"bloomary-api/internal/metrics"
 	"bloomary-api/internal/platform"
+	"bloomary-api/internal/platform/httpclient"
 	"bloomary-api/internal/platform/logger"
 	"bloomary-api/internal/stories"
 )
@@ -41,7 +49,31 @@ func newCredentialVault(config platform.Config) (*vaultGate.AESGCMVault, error) 
 	return vaultGate.NewAESGCMVault(keyring)
 }
 
-// logCrosspostConfig logs the publish mode at start (never key material).
+// rewrapCredentials is `bloomary-api rewrap-credentials`: after a new active key is added to the keyring, every
+// record sealed with an older key is sealed again with the active one; it prints how many. Remove an old key from the
+// keyring only when bloomary_crosspost_sealed_records shows zero for it.
+func rewrapCredentials(ctx context.Context, config platform.Config, store *authStore) error {
+	vault, err := newCredentialVault(config)
+	if err != nil {
+		return err
+	}
+	if vault == nil {
+		return errors.New("rewrap-credentials needs the credentials keyring (BLOOMARY_KEYRING_PATH)")
+	}
+	sealed, err := crosspostRepo.NewSealedRepository(store.db)
+	if err != nil {
+		return err
+	}
+	keys, err := stories.NewCredentialKeys(sealed, vault, nil)
+	if err != nil {
+		return err
+	}
+	n, err := keys.Rewrap(ctx)
+	fmt.Printf("rewrapped %d records under key %s\n", n, vault.ActiveKeyID())
+	return err
+}
+
+// logCrosspostConfig logs the publish mode at start (never key material) and exports it as bloomary_publish_mode.
 func logCrosspostConfig(appLogger *logger.Logger, config platform.Config, vault *vaultGate.AESGCMVault) {
 	keys := 0
 	if vault != nil {
@@ -54,20 +86,139 @@ func logCrosspostConfig(appLogger *logger.Logger, config platform.Config, vault 
 		"credentials_keyring_set": vault != nil,
 		"credentials_key_count":   keys,
 	}).Info("crosspost_config")
+	metrics.MustInitPublishModeMetric(crosspostDomain.ParsePublishMode(config.PublishMode))
 }
 
 // crosspostSetup carries what the crosspost wiring needs into newApplicationStories, and the background jobs it
 // built back out (started by main once the stories exist).
 type crosspostSetup struct {
-	vault   *vaultGate.AESGCMVault
-	config  platform.Config
-	workers []func(context.Context)
+	vault     *vaultGate.AESGCMVault
+	newClient func(name string, timeout time.Duration) (httpclient.Client, error)
+	auditKey  []byte
+	config    platform.Config
+	workers   []func(context.Context)
 }
 
-// Network gates register here (strategy: one gate package + one map entry). Empty until internal/gates/{x,meta,
-// youtube,tiktok} land: then networks answer "Not open yet" and dry_run still simulates.
-func crosspostGates() (map[crosspostDomain.Provider]crosspostDomain.ProviderConnector, map[crosspostDomain.Network]crosspostDomain.NetworkPublisher) {
-	return map[crosspostDomain.Provider]crosspostDomain.ProviderConnector{}, map[crosspostDomain.Network]crosspostDomain.NetworkPublisher{}
+// readAuditHMACKey reads BLOOMARY_AUDIT_HMAC_KEY_PATH (nil when unset). A set but unreadable or short key stops the start.
+func readAuditHMACKey(config platform.Config) ([]byte, error) {
+	if config.AuditHMACKeyFile == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(config.AuditHMACKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("read audit hmac key: %w", err)
+	}
+	key := bytes.TrimSpace(raw)
+	if len(key) < 32 {
+		return nil, errors.New("audit hmac key: at least 32 bytes are required")
+	}
+	return key, nil
+}
+
+// crosspostGateSet is the registry: one gate package + one map entry per network (strategy).
+type crosspostGateSet struct {
+	connectors map[crosspostDomain.Provider]crosspostDomain.ProviderConnector
+	publishers map[crosspostDomain.Network]crosspostDomain.NetworkPublisher
+	media      crosspostDomain.MediaWorker
+}
+
+// uploadTimeout bounds one media upload request (videos up to a few hundred MB).
+const uploadTimeout = 30 * time.Minute
+
+// crosspostGates registers each network whose app keys are set; others answer "Not open yet" and dry_run still
+// simulates them. Media needs R2 (the publishers stream from it or hand the network a signed URL).
+func crosspostGates(config platform.Config, objects draftDomain.ObjectStore, newClient func(string, time.Duration) (httpclient.Client, error)) (crosspostGateSet, error) {
+	set := crosspostGateSet{connectors: map[crosspostDomain.Provider]crosspostDomain.ProviderConnector{}, publishers: map[crosspostDomain.Network]crosspostDomain.NetworkPublisher{}}
+	media, ok := objects.(*objectstoreGate.R2ObjectStore)
+	if !ok || newClient == nil {
+		return set, nil
+	}
+	if config.FFmpegPath != "" {
+		worker, err := mediaGate.NewFFmpeg(mediaGate.Config{Store: media, FFmpeg: config.FFmpegPath, FFprobe: config.FFprobePath, WorkDir: config.MediaWorkDir})
+		if err != nil {
+			return set, err
+		}
+		set.media = worker
+	}
+	clients := func(name string) (httpclient.Client, httpclient.Client, error) {
+		api, err := newClient(name, 0)
+		if err != nil {
+			return nil, nil, err
+		}
+		upload, err := newClient(name+"_upload", uploadTimeout)
+		return api, upload, err
+	}
+	if config.XClientID != "" && config.XClientSecret != "" {
+		api, upload, err := clients("x")
+		if err != nil {
+			return set, err
+		}
+		cfg := xGate.Config{HTTP: api, Upload: upload, Media: media, ClientID: config.XClientID, ClientSecret: config.XClientSecret}
+		connector, err := xGate.NewConnector(cfg)
+		if err != nil {
+			return set, err
+		}
+		publisher, err := xGate.NewPublisher(cfg)
+		if err != nil {
+			return set, err
+		}
+		set.connectors[connector.Provider()], set.publishers[publisher.Network()] = connector, publisher
+	}
+	// Meta needs the media worker too: Reel or Page video is decided by the video's length and shape.
+	if config.MetaAppID != "" && config.MetaAppSecret != "" && set.media != nil {
+		api, err := newClient("meta", uploadTimeout)
+		if err != nil {
+			return set, err
+		}
+		cfg := metaGate.Config{HTTP: api, Media: media, Probe: set.media, AppID: config.MetaAppID, AppSecret: config.MetaAppSecret}
+		connector, err := metaGate.NewConnector(cfg)
+		if err != nil {
+			return set, err
+		}
+		facebook, err := metaGate.NewFacebookPagePublisher(cfg)
+		if err != nil {
+			return set, err
+		}
+		instagram, err := metaGate.NewInstagramPublisher(cfg)
+		if err != nil {
+			return set, err
+		}
+		set.connectors[connector.Provider()] = connector
+		set.publishers[facebook.Network()], set.publishers[instagram.Network()] = facebook, instagram
+	}
+	if config.GoogleClientID != "" && config.GoogleClientSecret != "" {
+		api, upload, err := clients("youtube")
+		if err != nil {
+			return set, err
+		}
+		cfg := youtubeGate.Config{HTTP: api, Upload: upload, Media: media, ClientID: config.GoogleClientID, ClientSecret: config.GoogleClientSecret}
+		connector, err := youtubeGate.NewConnector(cfg)
+		if err != nil {
+			return set, err
+		}
+		publisher, err := youtubeGate.NewPublisher(cfg)
+		if err != nil {
+			return set, err
+		}
+		set.connectors[connector.Provider()], set.publishers[publisher.Network()] = connector, publisher
+	}
+	if config.TikTokClientKey != "" && config.TikTokClientSecret != "" {
+		api, upload, err := clients("tiktok")
+		if err != nil {
+			return set, err
+		}
+		cfg := tiktokGate.Config{HTTP: api, Upload: upload, Media: media, ClientKey: config.TikTokClientKey, ClientSecret: config.TikTokClientSecret}
+		connector, err := tiktokGate.NewConnector(cfg)
+		if err != nil {
+			return set, err
+		}
+		publisher, err := tiktokGate.NewPublisher(cfg)
+		if err != nil {
+			return set, err
+		}
+		set.connectors[connector.Provider()], set.publishers[publisher.Network()] = connector, publisher
+	}
+	return set, nil
 }
 
 func newCrosspostRepos(db *sql.DB) (stories.CrosspostRepos, *crosspostRepo.PublicationRepository, *crosspostRepo.ConnectionRepository, error) {
@@ -95,7 +246,7 @@ func newCrosspostRepos(db *sql.DB) (stories.CrosspostRepos, *crosspostRepo.Publi
 	if err != nil {
 		return stories.CrosspostRepos{}, nil, nil, err
 	}
-	repos := stories.CrosspostRepos{Connections: connections, Destinations: destinations, Publications: publications, Deliveries: deliveries,
+	repos := stories.CrosspostRepos{Connections: connections, Destinations: destinations, Publications: publications, Unapproved: publications, Deliveries: deliveries,
 		DeliveryList: deliveries, Remover: connections, LinkedIn: linkedIn, Audit: audit, States: crosspostRepo.NewConnectStates()}
 	return repos, publications, connections, nil
 }
@@ -113,12 +264,16 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 	if !ok {
 		return nil, nil, errors.New("draft repository does not read draft extras")
 	}
-	connectors, publishers := crosspostGates()
+	gates, err := crosspostGates(setup.config, objects, setup.newClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	connectors, publishers := gates.connectors, gates.publishers
 	var vault crosspostDomain.CredentialVault
 	if setup.vault != nil {
 		vault = setup.vault
 	}
-	deletion, err := stories.NewDeleteCrosspostDataStory(repos, vault, connectors, extras, objects, []byte(setup.config.AuditHMACKey))
+	deletion, err := stories.NewDeleteCrosspostDataStory(repos, vault, connectors, extras, objects, setup.auditKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -149,7 +304,7 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 	collect(err)
 	built.EditDelivery, err = stories.NewEditDeliveryStory(repos)
 	collect(err)
-	built.Approve, err = stories.NewApprovePublicationStory(repos, store.draftRepo, extras, access, schedule, store.scheduledPostRepo, objects, nil)
+	built.Approve, err = stories.NewApprovePublicationStory(repos, store.draftRepo, extras, access, schedule, store.scheduledPostRepo, objects, gates.media)
 	collect(err)
 	built.Cancel, err = stories.NewCancelDeliveryStory(repos, schedule)
 	collect(err)
@@ -175,7 +330,15 @@ func newCrosspostStories(setup *crosspostSetup, store *authStore, objects draftD
 	if err := errors.Join(errs...); err != nil {
 		return nil, nil, err
 	}
-	setup.workers = append(setup.workers, worker.RunWorker, checker.Run, retention.Run)
+	sealed, err := crosspostRepo.NewSealedRepository(store.db)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, err := stories.NewCredentialKeys(sealed, setup.vault, metrics.MustInitCrosspostKeysMetric())
+	if err != nil {
+		return nil, nil, err
+	}
+	setup.workers = append(setup.workers, worker.RunWorker, checker.Run, retention.Run, keys.RunCounts)
 	return built, deletion, nil
 }
 
@@ -231,8 +394,16 @@ func replayDeletions(ctx context.Context, config platform.Config, store *authSto
 	if vault != nil {
 		credentialVault = vault
 	}
-	connectors, _ := crosspostGates()
-	crosspostDeletion, err := stories.NewDeleteCrosspostDataStory(repos, credentialVault, connectors, extras, objects, []byte(config.AuditHMACKey))
+	gates, err := crosspostGates(config, objects, nil)
+	if err != nil {
+		return err
+	}
+	connectors := gates.connectors
+	auditKey, err := readAuditHMACKey(config)
+	if err != nil {
+		return err
+	}
+	crosspostDeletion, err := stories.NewDeleteCrosspostDataStory(repos, credentialVault, connectors, extras, objects, auditKey)
 	if err != nil {
 		return err
 	}

@@ -92,6 +92,12 @@ func main() {
 	if err := postPublishRepo.InitTable(ctx); err != nil {
 		appLogger.Fatal(err)
 	}
+	if len(os.Args) > 1 && os.Args[1] == "rewrap-credentials" {
+		if err := rewrapCredentials(ctx, config, store); err != nil {
+			appLogger.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "replay-deletions" {
 		if err := replayDeletions(ctx, config, store, postPublishRepo, os.Args[2:]); err != nil {
 			appLogger.Fatal(err)
@@ -115,7 +121,11 @@ func main() {
 		appLogger.Fatal(fmt.Errorf("init credential vault: %w", err))
 	}
 	logCrosspostConfig(appLogger, config, credentialVault)
-	crosspost := &crosspostSetup{vault: credentialVault, config: config}
+	auditKey, err := readAuditHMACKey(config)
+	if err != nil {
+		appLogger.Fatal(err)
+	}
+	crosspost := &crosspostSetup{vault: credentialVault, auditKey: auditKey, config: config}
 
 	outboundDuration := metrics.MustInitOutboundHTTPRequestDurationMetric()
 	outboundInFlight := metrics.MustInitOutboundHTTPInFlightMetric()
@@ -194,6 +204,13 @@ func main() {
 			ctx, config, httpclient.WithMetrics(name, outboundDuration, outboundInFlight, outboundCounter),
 			httpclient.WithRequestTimeout(2*time.Minute),
 		)
+	}
+	crosspost.newClient = func(name string, timeout time.Duration) (httpclient.Client, error) {
+		options := []httpclient.ClientOptionFunc{httpclient.WithMetrics(name, outboundDuration, outboundInFlight, outboundCounter)}
+		if timeout > 0 {
+			options = append(options, httpclient.WithRequestTimeout(timeout))
+		}
+		return newHTTPClient(ctx, config, options...)
 	}
 	userBot, transcriber, err := newUserBotGates(config, newSlowClient)
 	if err != nil {

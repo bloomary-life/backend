@@ -105,9 +105,22 @@ type Config struct {
 	NetworksRedirectURI  string `env:"BLOOMARY_NETWORKS_REDIRECT_URI"`
 	XPostsPerDay         int    `env:"BLOOMARY_X_POSTS_PER_DAY" envDefault:"1"`
 	YouTubeUploadsPerDay int    `env:"BLOOMARY_YOUTUBE_UPLOADS_PER_DAY"`
-	// AuditHMACKey keys the member ID that replaces a deleted member's audit rows (rotated yearly); empty = a random
-	// key per deletion.
-	AuditHMACKey string `env:"BLOOMARY_AUDIT_HMAC_KEY"`
+	// AuditHMACKeyFile holds the key (at least 32 bytes) for the member ID that replaces a deleted member's audit rows
+	// (rotated yearly; prod: LoadCredential=, stage: read-only mount, like the keyring). Unset = a random key per deletion.
+	AuditHMACKeyFile string `env:"BLOOMARY_AUDIT_HMAC_KEY_PATH"`
+	// Network apps: a network opens only when both its keys are set (crosspost.go crosspostGates).
+	XClientID          string `env:"BLOOMARY_X_CLIENT_ID"`
+	XClientSecret      string `env:"BLOOMARY_X_CLIENT_SECRET"`
+	MetaAppID          string `env:"BLOOMARY_META_APP_ID"`
+	MetaAppSecret      string `env:"BLOOMARY_META_APP_SECRET"`
+	GoogleClientID     string `env:"BLOOMARY_GOOGLE_CLIENT_ID"`
+	GoogleClientSecret string `env:"BLOOMARY_GOOGLE_CLIENT_SECRET"`
+	TikTokClientKey    string `env:"BLOOMARY_TIKTOK_CLIENT_KEY"`
+	TikTokClientSecret string `env:"BLOOMARY_TIKTOK_CLIENT_SECRET"`
+	// Media worker (ffprobe/ffmpeg child processes): absolute paths; unset = no probe or variants.
+	FFmpegPath   string `env:"BLOOMARY_FFMPEG_PATH"`
+	FFprobePath  string `env:"BLOOMARY_FFPROBE_PATH"`
+	MediaWorkDir string `env:"BLOOMARY_MEDIA_WORK_DIR"`
 }
 
 type PositiveFloat float64
