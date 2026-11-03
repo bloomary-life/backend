@@ -10,7 +10,7 @@ import (
 )
 
 func TestCountMatchesSharedCases(t *testing.T) {
-	// Verifies: BE-031
+	// Verifies: BE-042
 	raw, err := os.ReadFile("testdata/text_counting.json")
 	require.NoError(t, err)
 	var fixture struct {
@@ -29,7 +29,7 @@ func TestCountMatchesSharedCases(t *testing.T) {
 }
 
 func TestRulesRowsMatchPlatformLimits(t *testing.T) {
-	// Verifies: BE-031
+	// Verifies: BE-042
 	require.Equal(t, TextLimit{Counting: CountRunes, Limit: 3000}, Rules[LinkedIn].TextLimit)
 	require.Nil(t, Rules[LinkedIn].Video)
 	require.Equal(t, TextLimit{Counting: CountXWeighted, Limit: 280}, Rules[X].TextLimit)
@@ -51,7 +51,7 @@ func TestRulesRowsMatchPlatformLimits(t *testing.T) {
 }
 
 func TestCheckAcceptsContentWithinEveryNetworkLimit(t *testing.T) {
-	// Verifies: BE-031
+	// Verifies: BE-042
 	image := &MediaInfo{Kind: MediaImage, ContentType: "image/jpeg", Bytes: 1 << 20, Width: 1080, Height: 1350}
 	video := &MediaInfo{Kind: MediaVideo, ContentType: "video/mp4", Bytes: 20 << 20, Seconds: 45, Width: 1080, Height: 1920}
 	for network, media := range map[Network]*MediaInfo{LinkedIn: image, X: video, FacebookPage: video, Instagram: image, YouTube: video, TikTok: video} {
@@ -62,7 +62,7 @@ func TestCheckAcceptsContentWithinEveryNetworkLimit(t *testing.T) {
 }
 
 func TestCheckReportsSkipLines(t *testing.T) {
-	// Verifies: BE-031
+	// Verifies: BE-042
 	problems, _ := Rules[X].Check(ContentToCheck{Text: strings.Repeat("a", 312)})
 	require.Equal(t, []string{"Too long for X (312/280). Edit the X text."}, problems)
 
@@ -84,13 +84,13 @@ func TestCheckReportsSkipLines(t *testing.T) {
 }
 
 func TestComposeTextPutsHashtagsOnTheirOwnLine(t *testing.T) {
-	// Verifies: BE-031
+	// Verifies: BE-042
 	require.Equal(t, "Post\n\n#one #two", ComposeText("Post\n", []string{"one", "#two"}))
 	require.Equal(t, "Post", ComposeText("Post", nil))
 }
 
 func TestProposePlainTextPerNetwork(t *testing.T) {
-	// Verifies: BE-032
+	// Verifies: BE-043
 	bold := "\U0001D5D5\U0001D5FC\U0001D5F9\U0001D5F1" // sans-serif bold "Bold"
 	italicH := "ℎ"                                     // italic small h
 	draft := DraftContent{Title: "My \U0001D400 title", Text: bold + " u̲n̶ " + italicH + "\n\nSecond paragraph."}
