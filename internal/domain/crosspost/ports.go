@@ -88,6 +88,12 @@ type LinkedInIntentStore interface {
 	DeleteByMemberID(ctx context.Context, memberID string) error
 }
 
+// UnapprovedCloser closes a draft's open publication that was prepared but never approved (its proposed deliveries
+// become cancelled), so preparing the draft again isn't blocked by an abandoned review.
+type UnapprovedCloser interface {
+	CloseUnapproved(ctx context.Context, memberID, draftID string, at time.Time) error
+}
+
 // RetentionStore deletes what the retention table (market/docs/legal/ropa.md) no longer keeps.
 type RetentionStore interface {
 	// DeleteClosedBefore deletes publications closed before cutoff with their deliveries and LinkedIn intents.
@@ -177,4 +183,34 @@ type NetworksView struct {
 
 type ListNetworksStory interface {
 	ListNetworks(ctx context.Context, memberID string) (NetworksView, error)
+}
+
+// SealedKind is which table a sealed record lives in.
+type SealedKind string
+
+const (
+	SealedConnection  SealedKind = "connection"
+	SealedDestination SealedKind = "destination"
+	SealedProgressRow SealedKind = "progress"
+)
+
+// SealedRecord is one vault record with the binding it was sealed under.
+type SealedRecord struct {
+	Kind     SealedKind
+	ID       string
+	MemberID string
+	Provider Provider
+	Sealed   SealedCredentials
+}
+
+// SealedRecordStore lists every sealed record (key rotation, records-per-key metric) and replaces one that is
+// still sealed as it was read.
+type SealedRecordStore interface {
+	SealedRecords(ctx context.Context) ([]SealedRecord, error)
+	ReplaceSealed(ctx context.Context, record SealedRecord, previous SealedCredentials) error
+}
+
+// KeyCounter publishes how many records each keyring key seals (an old key is removed only at zero).
+type KeyCounter interface {
+	RecordKeyCounts(counts map[string]int)
 }

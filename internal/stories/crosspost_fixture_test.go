@@ -73,7 +73,7 @@ func newCrosspostFixture(t *testing.T) *crosspostFixture {
 	require.NoError(t, err)
 	f.pause, err = crosspostRepo.NewPauseRepository(f.db)
 	require.NoError(t, err)
-	f.repos = CrosspostRepos{Connections: f.connections, Destinations: destinations, Publications: f.publications, Deliveries: deliveries,
+	f.repos = CrosspostRepos{Connections: f.connections, Destinations: destinations, Publications: f.publications, Unapproved: f.publications, Deliveries: deliveries,
 		DeliveryList: deliveries, Remover: f.connections, LinkedIn: intents, Audit: audit, States: crosspostRepo.NewConnectStates()}
 	f.vault, err = vaultGate.NewAESGCMVault(vaultGate.Keyring{ActiveID: "k1", Keys: map[string][]byte{"k1": bytes.Repeat([]byte{7}, 32)}})
 	require.NoError(t, err)

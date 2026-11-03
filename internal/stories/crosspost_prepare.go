@@ -39,7 +39,7 @@ type preparePublicationStory struct {
 
 func NewPreparePublicationStory(repos CrosspostRepos, drafts draftDomain.Repository, extras draftDomain.ExtrasRepository, access entitlementDomain.AccessStory, scheduled scheduledDomain.Repository, config PrepareConfig) (crosspostDomain.PreparePublicationStory, error) {
 	err := requireDeps("prepare publication story", map[string]any{"destinations": repos.Destinations, "publications": repos.Publications,
-		"deliveries": repos.Deliveries, "linkedin intents": repos.LinkedIn, "drafts": drafts, "draft extras": extras, "access": access, "scheduled posts": scheduled})
+		"deliveries": repos.Deliveries, "linkedin intents": repos.LinkedIn, "unapproved closer": repos.Unapproved, "drafts": drafts, "draft extras": extras, "access": access, "scheduled posts": scheduled})
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +81,10 @@ func (s *preparePublicationStory) Prepare(ctx context.Context, input crosspostDo
 			return crosspostDomain.PublicationView{}, err
 		}
 		deliveries = append(deliveries, delivery)
+	}
+	// A review prepared earlier and never approved doesn't block a new one; an approved one still does.
+	if err := s.repos.Unapproved.CloseUnapproved(ctx, input.MemberID, draft.DraftID, now); err != nil {
+		return crosspostDomain.PublicationView{}, err
 	}
 	if err := s.repos.Publications.Create(ctx, publication, deliveries); err != nil {
 		return crosspostDomain.PublicationView{}, err

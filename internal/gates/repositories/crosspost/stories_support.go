@@ -20,7 +20,24 @@ var (
 	_ crosspostDomain.LinkedInIntentStore = (*LinkedInIntentRepository)(nil)
 	_ crosspostDomain.RetentionStore      = (*PublicationRepository)(nil)
 	_ crosspostDomain.ConnectStateStore   = (*ConnectStates)(nil)
+	_ crosspostDomain.UnapprovedCloser    = (*PublicationRepository)(nil)
 )
+
+// CloseUnapproved cancels the proposed deliveries of the draft's open, never approved publication and closes it.
+func (r *PublicationRepository) CloseUnapproved(ctx context.Context, memberID, draftID string, at time.Time) error {
+	return inTx(ctx, r.db, func(tx *sql.Tx) error {
+		open := `SELECT id FROM bloomary_publications WHERE member_id=? AND draft_id=? AND closed_at IS NULL AND approved_at IS NULL`
+		now := formatTime(at)
+		if _, err := tx.ExecContext(ctx, `UPDATE bloomary_deliveries SET status='cancelled',version=version+1,updated_at=? WHERE status='proposed' AND publication_id IN (`+open+`)`,
+			now, memberID, draftID); err != nil {
+			return fmt.Errorf("cancel unapproved deliveries: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE bloomary_publications SET closed_at=? WHERE id IN (`+open+`)`, now, memberID, draftID); err != nil {
+			return fmt.Errorf("close unapproved publication: %w", err)
+		}
+		return nil
+	})
+}
 
 func (r *DeliveryRepository) ListByMember(ctx context.Context, memberID string) ([]crosspostDomain.Delivery, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+deliveryColumns+` FROM bloomary_deliveries WHERE member_id=? ORDER BY publish_at,id`, memberID)
@@ -200,4 +217,61 @@ func (r *ConnectionRepository) ListAll(ctx context.Context) ([]crosspostDomain.C
 		connections = append(connections, c)
 	}
 	return connections, rows.Err()
+}
+
+// SealedRepository implements crosspost.SealedRecordStore over connections, destinations and delivery progress.
+type SealedRepository struct{ db *sql.DB }
+
+var _ crosspostDomain.SealedRecordStore = (*SealedRepository)(nil)
+
+func NewSealedRepository(db *sql.DB) (*SealedRepository, error) {
+	if db == nil {
+		return nil, fmt.Errorf("crosspost sealed repository: db is required")
+	}
+	return &SealedRepository{db: db}, nil
+}
+
+func (r *SealedRepository) SealedRecords(ctx context.Context) ([]crosspostDomain.SealedRecord, error) {
+	rows, err := r.db.QueryContext(ctx, `
+SELECT 'connection',id,member_id,provider,sealed_key_id,sealed_schema,sealed_data FROM bloomary_connections
+UNION ALL
+SELECT 'destination',d.id,d.member_id,c.provider,d.sealed_key_id,d.sealed_schema,d.sealed_data FROM bloomary_destinations d
+  JOIN bloomary_connections c ON c.id=d.connection_id WHERE length(d.sealed_data)>0
+UNION ALL
+SELECT 'progress',id,member_id,network,progress_key_id,progress_schema,progress_data FROM bloomary_deliveries WHERE length(progress_data)>0`)
+	if err != nil {
+		return nil, fmt.Errorf("list sealed records: %w", err)
+	}
+	defer rows.Close()
+	records := []crosspostDomain.SealedRecord{}
+	for rows.Next() {
+		var record crosspostDomain.SealedRecord
+		var provider string
+		if err := rows.Scan(&record.Kind, &record.ID, &record.MemberID, &provider, &record.Sealed.KeyID, &record.Sealed.SchemaVersion, &record.Sealed.Data); err != nil {
+			return nil, err
+		}
+		record.Provider = crosspostDomain.Provider(provider)
+		if record.Kind == crosspostDomain.SealedProgressRow {
+			record.Provider = crosspostDomain.ProviderOf(crosspostDomain.Network(provider))
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
+// ReplaceSealed writes the new sealed value only when the row still holds previous (no lost update with the worker).
+func (r *SealedRepository) ReplaceSealed(ctx context.Context, record crosspostDomain.SealedRecord, previous crosspostDomain.SealedCredentials) error {
+	query := map[crosspostDomain.SealedKind]string{
+		crosspostDomain.SealedConnection:  `UPDATE bloomary_connections SET sealed_key_id=?,sealed_schema=?,sealed_data=?,version=version+1 WHERE id=? AND member_id=? AND sealed_key_id=? AND sealed_data=?`,
+		crosspostDomain.SealedDestination: `UPDATE bloomary_destinations SET sealed_key_id=?,sealed_schema=?,sealed_data=? WHERE id=? AND member_id=? AND sealed_key_id=? AND sealed_data=?`,
+		crosspostDomain.SealedProgressRow: `UPDATE bloomary_deliveries SET progress_key_id=?,progress_schema=?,progress_data=?,version=version+1 WHERE id=? AND member_id=? AND progress_key_id=? AND progress_data=?`,
+	}[record.Kind]
+	if query == "" {
+		return fmt.Errorf("replace sealed: unknown kind %q", record.Kind)
+	}
+	result, err := r.db.ExecContext(ctx, query, record.Sealed.KeyID, record.Sealed.SchemaVersion, record.Sealed.Data, record.ID, record.MemberID, previous.KeyID, previous.Data)
+	if err != nil {
+		return fmt.Errorf("replace sealed %s id=%q: %w", record.Kind, record.ID, err)
+	}
+	return oneRow(result)
 }

@@ -21,6 +21,7 @@ type CrosspostRepos struct {
 	Connections  crosspostDomain.ConnectionRepository
 	Destinations crosspostDomain.DestinationRepository
 	Publications crosspostDomain.PublicationRepository
+	Unapproved   crosspostDomain.UnapprovedCloser
 	Deliveries   crosspostDomain.DeliveryRepository
 	DeliveryList crosspostDomain.DeliveryLister
 	Remover      crosspostDomain.ConnectionRemover
@@ -184,3 +185,5 @@ func failureReason(d crosspostDomain.Delivery) string {
 }
 
 func isNotFound(err error) bool { return errors.Is(err, crosspostDomain.ErrNotFound) }
+
+func isVersionConflict(err error) bool { return errors.Is(err, crosspostDomain.ErrVersionConflict) }

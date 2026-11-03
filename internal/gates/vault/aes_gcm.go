@@ -80,6 +80,9 @@ func NewAESGCMVault(keyring Keyring) (*AESGCMVault, error) {
 // KeyCount is the number of keys loaded (logged at start, never the keys).
 func (v *AESGCMVault) KeyCount() int { return len(v.keys) }
 
+// ActiveKeyID is the key that seals new records (re-wrap target).
+func (v *AESGCMVault) ActiveKeyID() string { return v.activeID }
+
 // payload is the sealed form of Credentials; Credentials itself encodes as "[redacted]".
 type payload struct {
 	ExpiresAt    time.Time `json:"expires_at"`

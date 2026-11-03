@@ -121,3 +121,22 @@ func TestEditApproveStatusCancelAndRetryAPublication(t *testing.T) {
 		require.Equal(t, networkName(d.Network)+" · skipped", CrosspostStatusLine(d))
 	}
 }
+
+func TestPrepareAgainClosesAnAbandonedUnapprovedReview(t *testing.T) {
+	// Verifies: BE-063
+	f := newCrosspostFixture(t)
+	f.draft(t, "draft-1", "Hello.")
+	x := f.destination(t, crosspostDomain.X)
+	prepare, err := NewPreparePublicationStory(f.repos, f.drafts, f.drafts, f.access, f.scheduled, PrepareConfig{})
+	require.NoError(t, err)
+	first, err := prepare.Prepare(f.ctx, crosspostDomain.PrepareInput{MemberID: xMember, DraftID: "draft-1", DestinationIDs: []string{x.ID}})
+	require.NoError(t, err)
+
+	second, err := prepare.Prepare(f.ctx, crosspostDomain.PrepareInput{MemberID: xMember, DraftID: "draft-1", DestinationIDs: []string{x.ID}})
+	require.NoError(t, err)
+	require.NotEqual(t, first.Publication.ID, second.Publication.ID)
+	old, err := f.publications.ByID(f.ctx, xMember, first.Publication.ID)
+	require.NoError(t, err)
+	require.False(t, old.ClosedAt.IsZero())
+	require.Equal(t, crosspostDomain.StatusCancelled, f.deliveries(t, first.Publication.ID)[crosspostDomain.X].Status)
+}
