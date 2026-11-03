@@ -16,7 +16,9 @@ type accountDeletionStory struct {
 	draftRepo   draftDomain.Repository
 	draftImages draftDomain.ObjectStore
 	accountRepo accountDomain.Repository
-	memberData  []accountDomain.MemberDataDeleter
+	// beforeDrafts run first (cross-posting: its deliveries and media go before the drafts they came from).
+	beforeDrafts []accountDomain.MemberDataDeleter
+	memberData   []accountDomain.MemberDataDeleter
 }
 
 // NewAccountDeletionStory creates a new AccountDeletionStory implementation.
@@ -37,6 +39,18 @@ func NewAccountDeletionStoryWithMemberData(
 	memberData []accountDomain.MemberDataDeleter,
 	draftImages ...draftDomain.ObjectStore,
 ) (accountDomain.AccountDeletionStory, error) {
+	return NewAccountDeletionStoryWithSteps(dailyRepo, draftRepo, accountRepo, nil, memberData, draftImages...)
+}
+
+// NewAccountDeletionStoryWithSteps also runs beforeDrafts ahead of the draft step (DeleteCrosspostDataStory).
+func NewAccountDeletionStoryWithSteps(
+	dailyRepo dailyDomain.Repository,
+	draftRepo draftDomain.Repository,
+	accountRepo accountDomain.Repository,
+	beforeDrafts []accountDomain.MemberDataDeleter,
+	memberData []accountDomain.MemberDataDeleter,
+	draftImages ...draftDomain.ObjectStore,
+) (accountDomain.AccountDeletionStory, error) {
 	if dailyRepo == nil {
 		return nil, fmt.Errorf("account deletion story: daily repo is required")
 	}
@@ -53,11 +67,12 @@ func NewAccountDeletionStoryWithMemberData(
 	}
 
 	return &accountDeletionStory{
-		dailyRepo:   dailyRepo,
-		draftRepo:   draftRepo,
-		draftImages: imageStore,
-		accountRepo: accountRepo,
-		memberData:  memberData,
+		dailyRepo:    dailyRepo,
+		draftRepo:    draftRepo,
+		draftImages:  imageStore,
+		accountRepo:  accountRepo,
+		beforeDrafts: beforeDrafts,
+		memberData:   memberData,
 	}, nil
 }
 
@@ -95,6 +110,12 @@ func (s *accountDeletionStory) DeleteAccount(ctx context.Context, input accountD
 func (s *accountDeletionStory) deleteAllData(ctx context.Context, memberID string) error {
 	if err := s.dailyRepo.DeleteByMemberID(ctx, memberID); err != nil {
 		return fmt.Errorf("delete daily data: %w", err)
+	}
+
+	for _, data := range s.beforeDrafts {
+		if err := data.DeleteByMemberID(ctx, memberID); err != nil {
+			return fmt.Errorf("delete member data before drafts: %w", err)
+		}
 	}
 
 	if s.draftImages != nil {
