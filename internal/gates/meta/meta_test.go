@@ -28,7 +28,9 @@ const (
 
 type fixedProbe struct{ info crosspostDomain.MediaInfo }
 
-func (f fixedProbe) Probe(context.Context, string) (crosspostDomain.MediaInfo, error) { return f.info, nil }
+func (f fixedProbe) Probe(context.Context, string) (crosspostDomain.MediaInfo, error) {
+	return f.info, nil
+}
 func (f fixedProbe) Variant(context.Context, string, crosspostDomain.VariantSpec) (crosspostDomain.MediaRef, error) {
 	return crosspostDomain.MediaRef{}, nil
 }
@@ -145,7 +147,9 @@ func TestFacebookPagePublisherTextImageReelAndVideo(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, crosspostDomain.StatusPublished, result.Status)
-		require.Equal(t, "https://www.facebook.com/101/posts/1", result.ExternalURL)
+		if info.Kind != crosspostDomain.MediaVideo {
+			require.Equal(t, "https://www.facebook.com/101/posts/1", result.ExternalURL)
+		}
 		return result
 	}
 
@@ -254,7 +258,7 @@ func TestInstagramPublisherReusesSavedContainer(t *testing.T) {
 	result, err := publisher.Publish(context.Background(), crosspostDomain.PublishRequest{
 		Delivery:    crosspostDomain.Delivery{Text: "Caption.", MediaKey: "m/i.jpg"},
 		Destination: crosspostDomain.Destination{AccountID: "17841400000000001"}, Credentials: crosspostDomain.Credentials{AccessToken: pageToken},
-		Progress:    crosspostDomain.Credentials{Scope: igProgressStep, AccessToken: "17889455560051444"},
+		Progress: crosspostDomain.Credentials{Scope: igProgressStep, AccessToken: "17889455560051444"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "17920238422030507", result.ExternalPostID)

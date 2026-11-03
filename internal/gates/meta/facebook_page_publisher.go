@@ -50,7 +50,7 @@ func (p *FacebookPagePublisher) Publish(ctx context.Context, request crosspostDo
 	text := crosspostDomain.ComposeText(request.Delivery.Text, request.Delivery.Hashtags)
 	key := request.Delivery.MediaKey
 	if key == "" {
-		return p.post(ctx, token, "/"+pageID+"/feed", url.Values{"message": {text}}, "meta_page_feed")
+		return p.post(ctx, token, "/"+pageID+"/feed", url.Values{"message": {text}}, "meta_page_feed", true)
 	}
 	info, err := p.cfg.Probe.Probe(ctx, key)
 	if err != nil {
@@ -62,12 +62,12 @@ func (p *FacebookPagePublisher) Publish(ctx context.Context, request crosspostDo
 	}
 	if info.Kind == crosspostDomain.MediaImage {
 		// /{page-id}/photos: `caption` (the reference marks `message` deprecated), image by URL.
-		return p.post(ctx, token, "/"+pageID+"/photos", url.Values{"url": {link}, "caption": {text}}, "meta_page_photos")
+		return p.post(ctx, token, "/"+pageID+"/photos", url.Values{"url": {link}, "caption": {text}}, "meta_page_photos", true)
 	}
 	if info.Seconds >= reelMinSeconds && info.Seconds <= reelMaxSeconds && info.Height > info.Width {
 		return p.reel(ctx, request, pageID, token, link, text)
 	}
-	return p.post(ctx, token, "/"+pageID+"/videos", url.Values{"file_url": {link}, "description": {text}, "title": {request.Delivery.Title}}, "meta_page_videos")
+	return p.post(ctx, token, "/"+pageID+"/videos", url.Values{"file_url": {link}, "description": {text}, "title": {request.Delivery.Title}}, "meta_page_videos", false)
 }
 
 type postAnswer struct {
@@ -75,8 +75,9 @@ type postAnswer struct {
 	PostID string `json:"post_id"`
 }
 
-// post sends one create request; from here the post may exist, so a lost answer is outcome unknown.
-func (p *FacebookPagePublisher) post(ctx context.Context, token, path string, form url.Values, label string) (crosspostDomain.PublishResult, error) {
+// post sends one create request; from here the post may exist, so a lost answer is outcome unknown. withLink reads
+// the Post's permalink_url; Page videos have no documented permalink field, so they keep only their ID.
+func (p *FacebookPagePublisher) post(ctx context.Context, token, path string, form url.Values, label string, withLink bool) (crosspostDomain.PublishResult, error) {
 	var out postAnswer
 	if err := sent(p.call(ctx, http.MethodPost, path, token, form, label, &out)); err != nil {
 		return crosspostDomain.PublishResult{}, err
@@ -88,7 +89,11 @@ func (p *FacebookPagePublisher) post(ctx context.Context, token, path string, fo
 	if id == "" {
 		return crosspostDomain.PublishResult{}, netcall.Unknown("meta", errors.New("answer has no id"))
 	}
-	return crosspostDomain.PublishResult{Status: crosspostDomain.StatusPublished, ExternalPostID: id, ExternalURL: p.permalink(ctx, token, id)}, nil
+	result := crosspostDomain.PublishResult{Status: crosspostDomain.StatusPublished, ExternalPostID: id}
+	if withLink {
+		result.ExternalURL = p.permalink(ctx, token, id)
+	}
+	return result, nil
 }
 
 // reel: start → (progress saved) → hosted-file upload to rupload → finish with PUBLISHED (reels-publishing guide).
@@ -133,7 +138,8 @@ func (p *FacebookPagePublisher) reel(ctx context.Context, request crosspostDomai
 	if !finish.Success {
 		return crosspostDomain.PublishResult{}, netcall.Unknown("meta", errors.New("reel finish not confirmed"))
 	}
-	return crosspostDomain.PublishResult{Status: crosspostDomain.StatusPublished, ExternalPostID: videoID, ExternalURL: p.permalink(ctx, token, videoID)}, nil
+	// The finish answer carries no post ID: the Reel keeps its video ID, with no documented permalink.
+	return crosspostDomain.PublishResult{Status: crosspostDomain.StatusPublished, ExternalPostID: videoID}, nil
 }
 
 // uploadHosted: POST rupload…/video-upload/{version}/{video-id} with the file_url header (Meta pulls the file).
@@ -157,7 +163,7 @@ func (p *FacebookPagePublisher) uploadHosted(ctx context.Context, videoID, token
 	return nil
 }
 
-// permalink reads permalink_url (Post and Video nodes); a failure only leaves the link empty.
+// permalink reads a Post's permalink_url; a failure only leaves the link empty.
 func (p *FacebookPagePublisher) permalink(ctx context.Context, token, id string) string {
 	if !numericID(strings.ReplaceAll(id, "_", "")) {
 		return ""
