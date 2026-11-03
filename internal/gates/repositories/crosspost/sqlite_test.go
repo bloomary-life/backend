@@ -182,10 +182,13 @@ func TestConnectionsAndDestinations(t *testing.T) {
 	destinations, err := r.destinations.ListByMember(ctx, "member-1")
 	require.NoError(t, err)
 	require.Len(t, destinations, 2)
+	saved, err := r.destinations.ByID(ctx, "member-1", "dest-x-member-1")
+	require.NoError(t, err)
+	require.Equal(t, "America/New_York", saved.AudienceZone)
+	require.False(t, saved.Enabled)
 	for _, d := range destinations {
 		if d.ID == "dest-x-member-1" {
-			require.Equal(t, "America/New_York", d.AudienceZone)
-			require.False(t, d.Enabled)
+			require.Equal(t, saved, d)
 		}
 	}
 }
