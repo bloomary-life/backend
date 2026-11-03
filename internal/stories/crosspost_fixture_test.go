@@ -178,7 +178,9 @@ func (p *fakePublisher) Publish(_ context.Context, request crosspostDomain.Publi
 	return outcome.result, outcome.err
 }
 
-type finishedHook struct{ statuses []crosspostDomain.DeliveryStatus }
+type finishedHook struct {
+	statuses []crosspostDomain.DeliveryStatus
+}
 
 func (h *finishedHook) DeliveryFinished(_ context.Context, d crosspostDomain.Delivery) {
 	h.statuses = append(h.statuses, d.Status)

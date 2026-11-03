@@ -121,11 +121,12 @@ func (w *DeliveryWorker) deliver(ctx context.Context, d crosspostDomain.Delivery
 		w.retry(ctx, d, err != nil, retryIn)
 		return
 	}
+	request.SaveProgress = func(ctx context.Context, progress crosspostDomain.Credentials) error {
+		return w.saveProgress(ctx, &d, progress)
+	}
 	result, err := publisher.Publish(ctx, request)
 	if result.Progress.AccessToken != "" {
-		if sealed, sealErr := w.vault.Seal(ctx, w.binding(d.ID, d.MemberID, d.Network), result.Progress); sealErr == nil {
-			d.Progress = crosspostDomain.SealedProgress(sealed)
-		}
+		_ = w.saveProgress(ctx, &d, result.Progress)
 	}
 	var limited crosspostDomain.RateLimitedError
 	switch {
@@ -141,11 +142,11 @@ func (w *DeliveryWorker) deliver(ctx context.Context, d crosspostDomain.Delivery
 		w.save(ctx, &d, crosspostDomain.StatusScheduled)
 	case errors.Is(err, crosspostDomain.ErrNeedsReconnect):
 		w.markConnection(ctx, d, crosspostDomain.HealthNeedsReconnect)
-		w.finish(ctx, d, crosspostDomain.StatusNeedsReconnect, errorCodeReconnect)
+		w.finish(ctx, d, crosspostDomain.StatusNeedsReconnect, crosspostDomain.ErrorCode(err))
 	case errors.Is(err, crosspostDomain.ErrContentRejected):
-		w.finish(ctx, d, crosspostDomain.StatusFailed, errorCodeRejected)
+		w.finish(ctx, d, crosspostDomain.StatusFailed, crosspostDomain.ErrorCode(err))
 	case errors.Is(err, crosspostDomain.ErrOutcomeUnknown):
-		w.finish(ctx, d, crosspostDomain.StatusNeedsReview, errorCodeOutcome)
+		w.finish(ctx, d, crosspostDomain.StatusNeedsReview, crosspostDomain.ErrorCode(err))
 	default:
 		log.WithError(err).Error("crosspost_publish_failed")
 		w.retry(ctx, d, true, 0)
@@ -222,6 +223,21 @@ func (w *DeliveryWorker) refresh(ctx context.Context, connection crosspostDomain
 		return crosspostDomain.Credentials{}, err
 	}
 	return fresh, nil
+}
+
+// saveProgress seals a network step (Instagram container, YouTube upload session) and stores it before the next
+// request goes out, so a restart resumes instead of posting twice.
+func (w *DeliveryWorker) saveProgress(ctx context.Context, d *crosspostDomain.Delivery, progress crosspostDomain.Credentials) error {
+	sealed, err := w.vault.Seal(ctx, w.binding(d.ID, d.MemberID, d.Network), progress)
+	if err != nil {
+		return err
+	}
+	d.Progress = crosspostDomain.SealedProgress(sealed)
+	if err := w.repos.Deliveries.Save(ctx, *d); err != nil {
+		return err
+	}
+	d.Version++
+	return nil
 }
 
 func (w *DeliveryWorker) binding(recordID, memberID string, network crosspostDomain.Network) crosspostDomain.VaultBinding {

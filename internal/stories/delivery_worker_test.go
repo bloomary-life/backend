@@ -1,6 +1,7 @@
 package stories
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -115,4 +116,39 @@ func TestDeliveryWorkerSimulatesInDryRunAndSkipsPausedNetworks(t *testing.T) {
 	require.Empty(t, publisher.requests, "dry_run never calls the publisher")
 	require.Empty(t, hook.statuses, "no hooks for a simulated delivery")
 	require.Equal(t, crosspostDomain.StatusScheduled, f.status(t, "fb-1").Status, "a paused network is not claimed")
+}
+
+// stepPublisher saves a network step through SaveProgress before it answers.
+type stepPublisher struct{ progress crosspostDomain.Credentials }
+
+func (p *stepPublisher) Network() crosspostDomain.Network { return crosspostDomain.Instagram }
+
+func (p *stepPublisher) Publish(ctx context.Context, request crosspostDomain.PublishRequest) (crosspostDomain.PublishResult, error) {
+	p.progress = request.Progress
+	if err := request.SaveProgress(ctx, crosspostDomain.Credentials{AccessToken: "container-1"}); err != nil {
+		return crosspostDomain.PublishResult{}, err
+	}
+	return crosspostDomain.PublishResult{}, crosspostDomain.ErrOutcomeUnknown
+}
+
+func TestDeliveryWorkerSavesNetworkStepsSealedAndHandsThemBackOnRetry(t *testing.T) {
+	// Verifies: BE-054
+	f := newCrosspostFixture(t)
+	instagram := f.destination(t, crosspostDomain.Instagram)
+	f.dueDelivery(t, "ig-1", instagram)
+	publisher := &stepPublisher{}
+	worker := f.worker(t, crosspostDomain.ModeLive, nil, publisher)
+
+	worker.RunDue(f.ctx)
+	held := f.status(t, "ig-1")
+	require.Equal(t, crosspostDomain.StatusNeedsReview, held.Status)
+	require.NotEmpty(t, held.Progress.Data)
+	require.NotContains(t, string(held.Progress.Data), "container-1", "progress is sealed")
+
+	retry, err := NewRetryDeliveryStory(f.repos)
+	require.NoError(t, err)
+	_, err = retry.RetryDelivery(f.ctx, crosspostDomain.RetryDeliveryInput{MemberID: xMember, PublicationID: "pub-ig-1", DeliveryID: "ig-1"})
+	require.NoError(t, err)
+	worker.RunDue(f.ctx)
+	require.Equal(t, "container-1", publisher.progress.AccessToken, "the saved step comes back opened")
 }

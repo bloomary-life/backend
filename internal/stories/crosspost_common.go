@@ -166,19 +166,17 @@ func LinkedInStatusLine(part crosspostDomain.LinkedInPart) string {
 
 // Delivery error codes (LastErrorCode: category only, never network text).
 const (
-	errorCodeRejected     = "content_rejected"
 	errorCodeSendFailed   = "send_failed"
 	errorCodeNotAvailable = "network_not_available"
-	errorCodeOutcome      = "outcome_unknown"
 	errorCodeReconnect    = "needs_reconnect"
 )
 
 func failureReason(d crosspostDomain.Delivery) string {
 	name := networkName(d.Network)
-	switch d.LastErrorCode {
-	case errorCodeRejected:
+	switch {
+	case strings.HasPrefix(d.LastErrorCode, "content_rejected"):
 		return name + " refused the post"
-	case errorCodeNotAvailable:
+	case d.LastErrorCode == errorCodeNotAvailable:
 		return name + " isn't open yet"
 	default:
 		return name + " didn't answer after 5 tries"

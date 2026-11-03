@@ -24,7 +24,9 @@ func TestLinkedInWorkerClaimsNothingWhileLinkedInIsPaused(t *testing.T) {
 	story, err := NewLinkedInScheduleStory(scheduleMocks.NewMockRepository(t), accountMocks.NewMockRepository(t), draftMocks.NewMockRepository(t), draftMocks.NewMockObjectStore(t),
 		entitlementMocks.NewMockAccessStory(t), linkedinMocks.NewMockGate(t), linkedinMocks.NewMockLinkedInPostStory(t), time.Minute, 31)
 	require.NoError(t, err)
-	story.(interface{ UseGuard(crosspostDomain.PublishGuard) }).UseGuard(guard)
+	story.(interface {
+		UseGuard(crosspostDomain.PublishGuard)
+	}).UseGuard(guard)
 
 	require.False(t, story.(*linkedInScheduleStory).publishOne(f.ctx))
 }

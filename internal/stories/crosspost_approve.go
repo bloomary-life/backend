@@ -216,8 +216,9 @@ func variantSpec(network crosspostDomain.Network, info *crosspostDomain.MediaInf
 	switch {
 	case network == crosspostDomain.X && info.Kind == crosspostDomain.MediaVideo:
 		return crosspostDomain.VariantSpec{ContentType: "video/mp4", Width: 720, Height: 1280}, "", true
-	case network == crosspostDomain.Instagram && info.Kind == crosspostDomain.MediaImage && info.ContentType != "image/jpeg":
-		return crosspostDomain.VariantSpec{ContentType: "image/jpeg", Width: 1080, Height: 1350, MaxBytes: 8 << 20}, "Instagram · fitted to 4:5 (preview below)", true
+	case network == crosspostDomain.Instagram && info.Kind == crosspostDomain.MediaImage:
+		return crosspostDomain.VariantSpec{ContentType: "image/jpeg", Width: 1440, Height: 1800, MaxBytes: 8 << 20, AspectMin: 0.8, AspectMax: 1.91},
+			"Instagram · fitted to 4:5 (preview below)", true
 	}
 	return crosspostDomain.VariantSpec{}, "", false
 }
