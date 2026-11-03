@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	crosspostDomain "bloomary-api/internal/domain/crosspost"
@@ -112,6 +113,10 @@ func (s *preparePublicationStory) propose(ctx context.Context, publication cross
 	extras draftDomain.Extras, flags crosspostDomain.AIFlags, media *crosspostDomain.MediaInfo, now time.Time) (crosspostDomain.Delivery, error) {
 	network := destination.Network
 	text, title := crosspostDomain.Propose(network, crosspostDomain.DraftContent{Text: draft.Body, Title: extras.Title})
+	if line := crosspostDomain.XAILine(flags); network == crosspostDomain.X && line != "" {
+		// Part of the text the member sees and approves, counted inside the 280.
+		text = strings.TrimRight(text, "\n ") + "\n\n" + line
+	}
 	delivery := crosspostDomain.Delivery{ID: newCrosspostID(), PublicationID: publication.ID, MemberID: publication.MemberID, DestinationID: destination.ID,
 		Network: network, Text: text, Title: title, Hashtags: []string{}, AILabel: crosspostDomain.AILabel(network, flags), Status: crosspostDomain.StatusProposed}
 	if network == crosspostDomain.LinkedIn || crosspostDomain.ProviderOf(network) == "" {

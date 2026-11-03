@@ -50,3 +50,11 @@ func TestCredentialsAreRedactedEverywhere(t *testing.T) {
 		require.Contains(t, out, "[redacted]")
 	}
 }
+
+func TestXAILine(t *testing.T) {
+	// Verifies: BE-067
+	require.Equal(t, "Made with AI voice.", XAILine(AIFlags{Voice: true}))
+	require.Equal(t, "Made with AI voice and visuals.", XAILine(AIFlags{Voice: true, RealisticShots: true}))
+	require.Equal(t, "Made with AI voice and visuals.", XAILine(AIFlags{Voice: true, Music: true}))
+	require.Empty(t, XAILine(AIFlags{}))
+}

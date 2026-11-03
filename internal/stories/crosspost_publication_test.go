@@ -16,6 +16,7 @@ import (
 
 func TestPrepareProposesPlainTextsLabelsTimesAndSkipLines(t *testing.T) {
 	// Verifies: BE-052
+	// Verifies: BE-067
 	f := newCrosspostFixture(t)
 	f.draft(t, "draft-1", "𝐁𝐨𝐥𝐝 first paragraph.\n\nSecond paragraph.")
 	_, err := f.db.ExecContext(f.ctx, `UPDATE synced_drafts SET title='My title',ai_voice=1 WHERE draft_id='draft-1'`)
@@ -29,7 +30,7 @@ func TestPrepareProposesPlainTextsLabelsTimesAndSkipLines(t *testing.T) {
 	require.NotNil(t, view.LinkedIn)
 	require.False(t, view.LinkedIn.ProposedAt.IsZero())
 	byNetwork := f.deliveries(t, view.Publication.ID)
-	require.Equal(t, "Bold first paragraph.", byNetwork[crosspostDomain.X].Text)
+	require.Equal(t, "Bold first paragraph.\n\nMade with AI voice.", byNetwork[crosspostDomain.X].Text, "X gets the AI line, counted inside 280")
 	require.Equal(t, crosspostDomain.StatusProposed, byNetwork[crosspostDomain.X].Status)
 	require.True(t, byNetwork[crosspostDomain.X].AILabel, "X: any AI flag")
 	require.Contains(t, byNetwork[crosspostDomain.X].Warnings, "X · now (no best time yet)")

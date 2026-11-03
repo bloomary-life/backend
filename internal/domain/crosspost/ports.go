@@ -131,6 +131,19 @@ func AILabel(network Network, flags AIFlags) bool {
 	}
 }
 
+// XAILine is the caption line X gets instead of an API label (platforms.md Table 4 row 5; Kat 2026-11-03): voice
+// with realistic shots or music = "Made with AI voice and visuals.", voice alone = "Made with AI voice.". Empty
+// without an AI voice.
+func XAILine(flags AIFlags) string {
+	switch {
+	case flags.Voice && (flags.RealisticShots || flags.Music):
+		return "Made with AI voice and visuals."
+	case flags.Voice:
+		return "Made with AI voice."
+	}
+	return ""
+}
+
 // BlockingProblems are the text, title and hashtag problems the member must fix before approval (media problems skip
 // the delivery instead, at Prepare and Approve).
 func BlockingProblems(d Delivery) []string {
