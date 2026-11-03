@@ -1,6 +1,7 @@
 package crosspost
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -231,9 +232,11 @@ type MediaInfo struct {
 // VariantSpec asks MediaWorker for a network's copy of a file (X 720×1280, Telegram preview, image fit).
 type VariantSpec struct {
 	ContentType string
-	Width       int
+	Width       int // fit inside Width×Height, aspect kept
 	Height      int
 	MaxBytes    int64
+	AspectMin   float64 // width/height; when set, the picture is padded into [AspectMin, AspectMax] (Instagram 0.8–1.91)
+	AspectMax   float64
 }
 
 type MediaRef struct {
@@ -247,6 +250,10 @@ type PublishRequest struct {
 	Destination Destination
 	Credentials Credentials
 	Progress    Credentials // opened SealedProgress; empty on the first attempt
+	CoverKey    string      // optional video cover image (Instagram cover_url)
+	// SaveProgress, when set, seals and stores a network step before the next one (Instagram container, YouTube
+	// upload session, Facebook Reel video ID). An error stops the publish before the next request goes out.
+	SaveProgress func(ctx context.Context, progress Credentials) error
 }
 
 type PublishResult struct {

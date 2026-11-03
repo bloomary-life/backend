@@ -2,8 +2,10 @@ package httpclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -171,6 +173,11 @@ func (c *httpClient) logRequest(
 		"duration_ms": duration.Milliseconds(),
 	}
 	if err != nil {
+		// A transport error is a *url.Error whose text holds the full URL; its query may carry secrets or tokens.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		log.WithFields(fields).WithError(err).Error("http_client_request")
 		return
 	}

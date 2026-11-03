@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,10 +48,17 @@ type R2ObjectStore struct {
 	presignTTL     time.Duration
 	maxUploadBytes int64
 	client         *http.Client
+	streamClient   *http.Client
 }
 
 // r2RequestTimeout bounds one R2 request, so a stalled connection cannot hold a caller (e.g. MCP attach_image).
 const r2RequestTimeout = 60 * time.Second
+
+// r2StreamTimeout bounds a streamed media read or write (videos up to a few hundred MB).
+const r2StreamTimeout = 30 * time.Minute
+
+// maxPresignTTL is S3 SigV4's longest presigned URL (7 days).
+const maxPresignTTL = 7 * 24 * time.Hour
 
 var _ draftDomain.ObjectStore = (*R2ObjectStore)(nil)
 
@@ -94,6 +102,7 @@ func NewR2ObjectStore(config R2Config) (*R2ObjectStore, error) {
 		presignTTL:     presignTTL,
 		maxUploadBytes: maxBytes,
 		client:         &http.Client{Timeout: r2RequestTimeout},
+		streamClient:   &http.Client{Timeout: r2StreamTimeout},
 	}, nil
 }
 
@@ -214,6 +223,59 @@ func (s *R2ObjectStore) Read(ctx context.Context, objectKey string) ([]byte, err
 	return io.ReadAll(resp.Body)
 }
 
+// Open streams an object without reading it into memory; the caller closes the body.
+func (s *R2ObjectStore) Open(ctx context.Context, objectKey string) (io.ReadCloser, int64, string, error) {
+	req, err := s.signedRequest(ctx, http.MethodGet, objectKey, nil)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	resp, err := s.streamClient.Do(req)
+	if err != nil {
+		return nil, 0, "", stripURL(err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		_ = resp.Body.Close()
+		return nil, 0, "", fmt.Errorf("r2 open object status=%d", resp.StatusCode)
+	}
+	return resp.Body, resp.ContentLength, strings.TrimSpace(resp.Header.Get("Content-Type")), nil
+}
+
+// PutStream uploads size bytes from body (large media, e.g. a network variant) without buffering them.
+func (s *R2ObjectStore) PutStream(ctx context.Context, objectKey, contentType string, body io.Reader, size int64) error {
+	req, err := s.signedRequest(ctx, http.MethodPut, objectKey, map[string]string{"Content-Type": contentType})
+	if err != nil {
+		return err
+	}
+	req.Body = io.NopCloser(body)
+	req.ContentLength = size
+	resp, err := s.streamClient.Do(req)
+	if err != nil {
+		return stripURL(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("r2 put object status=%d", resp.StatusCode)
+	}
+	return nil
+}
+
+// SignedURL is a presigned GET valid for ttl (a network pulls media from it: Instagram, Facebook).
+func (s *R2ObjectStore) SignedURL(_ context.Context, objectKey string, ttl time.Duration) (string, error) {
+	if ttl <= 0 || ttl > maxPresignTTL {
+		return "", fmt.Errorf("r2 signed url: ttl must be between 1s and %s", maxPresignTTL)
+	}
+	link, _, err := s.presignFor(http.MethodGet, objectKey, nil, ttl)
+	return link, err
+}
+
+func stripURL(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
+}
+
 func (s *R2ObjectStore) PresignPut(
 	_ context.Context, input draftDomain.PresignPutInput,
 ) (string, time.Time, error) {
@@ -302,13 +364,17 @@ func (s *R2ObjectStore) signedRequest(
 }
 
 func (s *R2ObjectStore) presign(method, objectKey string, headers map[string]string) (string, time.Time, error) {
+	return s.presignFor(method, objectKey, headers, s.presignTTL)
+}
+
+func (s *R2ObjectStore) presignFor(method, objectKey string, headers map[string]string, ttl time.Duration) (string, time.Time, error) {
 	objectKey = strings.TrimLeft(strings.TrimSpace(objectKey), "/")
 	if objectKey == "" {
 		return "", time.Time{}, fmt.Errorf("object key is required")
 	}
 
 	now := time.Now().UTC()
-	expiresAt := now.Add(s.presignTTL)
+	expiresAt := now.Add(ttl)
 	amzDate := now.Format("20060102T150405Z")
 	date := now.Format("20060102")
 	scope := date + "/" + defaultR2Region + "/s3/" + aws4Request
@@ -318,7 +384,7 @@ func (s *R2ObjectStore) presign(method, objectKey string, headers map[string]str
 	query.Set("X-Amz-Algorithm", aws4Algorithm)
 	query.Set("X-Amz-Credential", s.accessKeyID+"/"+scope)
 	query.Set("X-Amz-Date", amzDate)
-	query.Set("X-Amz-Expires", strconv.Itoa(int(s.presignTTL.Seconds())))
+	query.Set("X-Amz-Expires", strconv.Itoa(int(ttl.Seconds())))
 	query.Set("X-Amz-SignedHeaders", signedHeaders)
 	canonicalQuery := awsQueryEncode(query)
 	canonicalRequest := strings.Join(
