@@ -93,8 +93,8 @@ type Config struct {
 	PublishingPaused bool `env:"BLOOMARY_PUBLISHING_PAUSED"`
 	// LiveDestinationIDs: in live mode, only these destinations post for real when the list is set (stage).
 	LiveDestinationIDs []string `env:"BLOOMARY_LIVE_DESTINATION_IDS" envSeparator:","`
-	// CredentialsKeyringFile is the vault keyring file (prod: systemd LoadCredential=; stage: read-only mount). Unset = no vault.
-	CredentialsKeyringFile string `env:"BLOOMARY_CREDENTIALS_KEYRING_FILE"`
+	// CredentialsKeyringFile is the vault keyring file (prod: systemd LoadCredential=, %d/bloomary-keyring; stage: read-only mount). Unset = no vault.
+	CredentialsKeyringFile string `env:"BLOOMARY_KEYRING_PATH"`
 }
 
 type PositiveFloat float64
