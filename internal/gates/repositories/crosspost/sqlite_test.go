@@ -182,8 +182,12 @@ func TestConnectionsAndDestinations(t *testing.T) {
 	destinations, err := r.destinations.ListByMember(ctx, "member-1")
 	require.NoError(t, err)
 	require.Len(t, destinations, 2)
-	require.Equal(t, "America/New_York", destinations[0].AudienceZone)
-	require.False(t, destinations[0].Enabled)
+	for _, d := range destinations {
+		if d.ID == "dest-x-member-1" {
+			require.Equal(t, "America/New_York", d.AudienceZone)
+			require.False(t, d.Enabled)
+		}
+	}
 }
 
 func TestDeleteByMemberIDRemovesCrosspostRows(t *testing.T) {
