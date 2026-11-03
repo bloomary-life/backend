@@ -176,7 +176,8 @@ func (s *ConnectStates) Take(_ context.Context, state string, now time.Time) (cr
 const closedBefore = `SELECT id FROM bloomary_publications WHERE closed_at IS NOT NULL AND closed_at<?`
 
 func (r *PublicationRepository) MediaClosedBefore(ctx context.Context, cutoff time.Time) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT media_key FROM bloomary_deliveries WHERE media_key<>'' AND publication_id IN (`+closedBefore+`)`, formatTime(cutoff))
+	rows, err := r.db.QueryContext(ctx, `SELECT media_key FROM bloomary_deliveries WHERE media_key<>'' AND publication_id IN (`+closedBefore+`)
+UNION SELECT cover_key FROM bloomary_deliveries WHERE cover_key<>'' AND publication_id IN (`+closedBefore+`)`, formatTime(cutoff), formatTime(cutoff))
 	if err != nil {
 		return nil, fmt.Errorf("closed media keys: %w", err)
 	}
@@ -193,7 +194,7 @@ func (r *PublicationRepository) MediaClosedBefore(ctx context.Context, cutoff ti
 }
 
 func (r *PublicationRepository) ClearMediaClosedBefore(ctx context.Context, cutoff time.Time) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE bloomary_deliveries SET media_key='',version=version+1,updated_at=? WHERE media_key<>'' AND publication_id IN (`+closedBefore+`)`,
+	_, err := r.db.ExecContext(ctx, `UPDATE bloomary_deliveries SET media_key='',cover_key='',version=version+1,updated_at=? WHERE (media_key<>'' OR cover_key<>'') AND publication_id IN (`+closedBefore+`)`,
 		formatTime(time.Now()), formatTime(cutoff))
 	if err != nil {
 		return fmt.Errorf("clear closed media keys: %w", err)

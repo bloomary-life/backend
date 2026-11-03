@@ -2,6 +2,7 @@ package videostudio
 
 import (
 	"context"
+	"time"
 
 	crosspostDomain "bloomary-api/internal/domain/crosspost"
 )
@@ -63,6 +64,11 @@ type ApproveVideoStory interface {
 	ApproveVideo(ctx context.Context, input ApproveVideoInput) (ApproveVideoOutput, error)
 }
 
+type RetryVideoRequestStory interface {
+	// RetryVideoRequest runs the failed step again (Retry after "… failed" or the time limit).
+	RetryVideoRequest(ctx context.Context, memberID, requestID string) (VideoRequest, error)
+}
+
 type CancelVideoRequestStory interface {
 	CancelVideoRequest(ctx context.Context, memberID, requestID string) (VideoRequest, error)
 }
@@ -83,6 +89,25 @@ type ClaimProducerJobStory interface {
 	ClaimProducerJob(ctx context.Context) (ClaimedJob, error)
 }
 
+type HeartbeatProducerJobStory interface {
+	// HeartbeatProducerJob extends the lease; ErrJobCancelled when Kat cancelled or the time limit stopped it.
+	HeartbeatProducerJob(ctx context.Context, jobID, leaseToken string) error
+}
+
+// UploadSlot is one presigned PUT for a file of the job.
+type UploadSlot struct {
+	ExpiresAt   time.Time
+	Name        string // master, captions, cover
+	Key         string
+	URL         string
+	ContentType string
+}
+
+type PrepareUploadsStory interface {
+	// PrepareUploads returns presigned PUTs (short TTL, content type fixed, keys scoped to the job) for a render job.
+	PrepareUploads(ctx context.Context, jobID, leaseToken string) ([]UploadSlot, error)
+}
+
 type SubmitScenarioInput struct {
 	JobID      string
 	LeaseToken string
@@ -93,12 +118,10 @@ type SubmitScenarioStory interface {
 	SubmitScenario(ctx context.Context, input SubmitScenarioInput) error
 }
 
+// SubmitRenderInput: the files are the job's upload slots (master, captions, cover), never other keys.
 type SubmitRenderInput struct {
 	JobID        string
 	LeaseToken   string
-	MasterKey    string
-	CaptionsKey  string
-	CoverKey     string
 	MusicLicence string
 }
 

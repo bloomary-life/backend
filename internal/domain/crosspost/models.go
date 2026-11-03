@@ -172,6 +172,7 @@ type Delivery struct {
 	Title          string
 	MediaKey       string // frozen copy for this network, backend-hashed
 	MediaSHA256    string
+	CoverKey       string // frozen copy of the video's cover image, when it has one
 	Status         DeliveryStatus
 	SkipReason     string
 	ExternalPostID string

@@ -64,6 +64,12 @@ type ConnectStateStore interface {
 	Take(ctx context.Context, state string, now time.Time) (ConnectState, error)
 }
 
+// PublicationLister lists the member's approved publications for the Scheduled tab and /planned.
+type PublicationLister interface {
+	// ListApproved: open, or closed since closedSince; newest first.
+	ListApproved(ctx context.Context, memberID string, closedSince time.Time) ([]Publication, error)
+}
+
 // DeliveryLister lists every delivery of a member (connection removal, account deletion, reconnect).
 type DeliveryLister interface {
 	ListByMember(ctx context.Context, memberID string) ([]Delivery, error)
@@ -192,6 +198,11 @@ type NetworksView struct {
 	Connections  []Connection
 	Destinations []Destination
 	Open         []Provider
+}
+
+// ListPublicationsStory lists the member's approved publications with every delivery's status (web Scheduled tab).
+type ListPublicationsStory interface {
+	ListPublications(ctx context.Context, memberID string) ([]PublicationView, error)
 }
 
 type ListNetworksStory interface {

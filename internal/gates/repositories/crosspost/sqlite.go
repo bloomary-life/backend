@@ -257,6 +257,27 @@ func (r *PublicationRepository) ByID(ctx context.Context, memberID, id string) (
 	return p, nil
 }
 
+// ListApproved lists the member's approved publications that are open or closed since closedSince, newest first.
+func (r *PublicationRepository) ListApproved(ctx context.Context, memberID string, closedSince time.Time) ([]crosspostDomain.Publication, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id,member_id,draft_id,linkedin_schedule_id,created_at,approved_at,closed_at FROM bloomary_publications
+WHERE member_id=? AND approved_at IS NOT NULL AND (closed_at IS NULL OR closed_at>=?) ORDER BY created_at DESC,id LIMIT 100`, memberID, formatTime(closedSince))
+	if err != nil {
+		return nil, fmt.Errorf("list publications: %w", err)
+	}
+	defer rows.Close()
+	var out []crosspostDomain.Publication
+	for rows.Next() {
+		var p crosspostDomain.Publication
+		var created, approved, closed sql.NullString
+		if err := rows.Scan(&p.ID, &p.MemberID, &p.DraftID, &p.LinkedInScheduleID, &created, &approved, &closed); err != nil {
+			return nil, err
+		}
+		p.CreatedAt, p.ApprovedAt, p.ClosedAt = parseTime(created), parseTime(approved), parseTime(closed)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (r *PublicationRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
 	return deleteByMember(ctx, r.db, "bloomary_publications", memberID)
 }
@@ -275,7 +296,7 @@ func NewDeliveryRepository(db *sql.DB) (*DeliveryRepository, error) {
 
 const deliveryColumns = `id,publication_id,member_id,destination_id,network,text,title,hashtags,media_key,media_sha256,ai_label,
 youtube_privacy,youtube_made_for_kids,publish_at,status,skip_reason,warnings,progress_key_id,progress_schema,progress_data,
-external_post_id,external_url,attempts,next_attempt_at,last_error_code,version`
+external_post_id,external_url,attempts,next_attempt_at,last_error_code,cover_key,version`
 
 // Save updates the delivery only when it is still at d.Version and closes its publication when the last delivery is final.
 func (r *DeliveryRepository) Save(ctx context.Context, d crosspostDomain.Delivery) error {
@@ -365,11 +386,11 @@ func insertDelivery(ctx context.Context, tx *sql.Tx, d crosspostDomain.Delivery)
 		return err
 	}
 	now := formatTime(time.Now())
-	_, err = tx.ExecContext(ctx, `INSERT INTO bloomary_deliveries(`+deliveryColumns+`,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
+	_, err = tx.ExecContext(ctx, `INSERT INTO bloomary_deliveries(`+deliveryColumns+`,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
 		d.ID, d.PublicationID, d.MemberID, d.DestinationID, d.Network, d.Text, d.Title, hashtags, d.MediaKey, d.MediaSHA256, d.AILabel,
 		d.YouTube.Privacy, d.YouTube.MadeForKids, formatTime(d.PublishAt), d.Status, d.SkipReason, warnings,
 		d.Progress.KeyID, d.Progress.SchemaVersion, d.Progress.Data, d.ExternalPostID, d.ExternalURL, d.Attempts, nullTime(d.NextAttemptAt), d.LastErrorCode,
-		now, now)
+		d.CoverKey, now, now)
 	if err != nil {
 		return fmt.Errorf("insert delivery id=%q: %w", d.ID, err)
 	}
@@ -383,12 +404,12 @@ func updateDelivery(ctx context.Context, tx *sql.Tx, d crosspostDomain.Delivery)
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE bloomary_deliveries SET text=?,title=?,hashtags=?,media_key=?,media_sha256=?,ai_label=?,
 youtube_privacy=?,youtube_made_for_kids=?,publish_at=?,status=?,skip_reason=?,warnings=?,progress_key_id=?,progress_schema=?,progress_data=?,
-external_post_id=?,external_url=?,attempts=?,next_attempt_at=?,last_error_code=?,version=version+1,updated_at=?
+external_post_id=?,external_url=?,attempts=?,next_attempt_at=?,last_error_code=?,cover_key=?,version=version+1,updated_at=?
 WHERE id=? AND member_id=? AND version=?`,
 		d.Text, d.Title, hashtags, d.MediaKey, d.MediaSHA256, d.AILabel,
 		d.YouTube.Privacy, d.YouTube.MadeForKids, formatTime(d.PublishAt), d.Status, d.SkipReason, warnings,
 		d.Progress.KeyID, d.Progress.SchemaVersion, d.Progress.Data, d.ExternalPostID, d.ExternalURL, d.Attempts, nullTime(d.NextAttemptAt), d.LastErrorCode,
-		formatTime(time.Now()), d.ID, d.MemberID, d.Version)
+		d.CoverKey, formatTime(time.Now()), d.ID, d.MemberID, d.Version)
 	if err != nil {
 		return fmt.Errorf("update delivery id=%q: %w", d.ID, err)
 	}
@@ -437,7 +458,7 @@ func scanDelivery(row scanner) (crosspostDomain.Delivery, error) {
 	var madeForKids sql.NullBool
 	err := row.Scan(&d.ID, &d.PublicationID, &d.MemberID, &d.DestinationID, &d.Network, &d.Text, &d.Title, &hashtags, &d.MediaKey, &d.MediaSHA256, &d.AILabel,
 		&d.YouTube.Privacy, &madeForKids, &publishAt, &d.Status, &d.SkipReason, &warnings, &d.Progress.KeyID, &d.Progress.SchemaVersion, &d.Progress.Data,
-		&d.ExternalPostID, &d.ExternalURL, &d.Attempts, &nextAttempt, &d.LastErrorCode, &d.Version)
+		&d.ExternalPostID, &d.ExternalURL, &d.Attempts, &nextAttempt, &d.LastErrorCode, &d.CoverKey, &d.Version)
 	if err != nil {
 		return crosspostDomain.Delivery{}, notFound(err)
 	}

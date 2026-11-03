@@ -33,4 +33,6 @@ type ExtrasRepository interface {
 	SetVideo(ctx context.Context, memberID, draftID string, video Video) ([]string, error)
 	// DeleteVideos removes the videos of these drafts and returns their keys (draft deletion through sync).
 	DeleteVideos(ctx context.Context, memberID string, draftIDs []string) ([]string, error)
+	// SetTitleAndAIFlags stores a studio draft's title and AI content flags (extras.Video is ignored).
+	SetTitleAndAIFlags(ctx context.Context, memberID, draftID string, extras Extras) error
 }

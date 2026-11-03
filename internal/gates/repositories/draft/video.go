@@ -33,6 +33,18 @@ func (r *SQLiteRepository) Extras(ctx context.Context, memberID, draftID string)
 	return extras, nil
 }
 
+func (r *SQLiteRepository) SetTitleAndAIFlags(ctx context.Context, memberID, draftID string, extras draftDomain.Extras) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE synced_drafts SET title=?,ai_voice=?,ai_realistic_shots=?,ai_music=? WHERE member_id=? AND draft_id=?`,
+		extras.Title, extras.AIVoice, extras.AIRealisticShots, extras.AIMusic, memberID, draftID)
+	if err != nil {
+		return fmt.Errorf("set draft title and ai flags draft_id=%q: %w", draftID, err)
+	}
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
+		return fmt.Errorf("set draft title and ai flags draft_id=%q: draft not found", draftID)
+	}
+	return nil
+}
+
 func (r *SQLiteRepository) VideoKeys(ctx context.Context, memberID string) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT master_key,captions_key,cover_key FROM bloomary_draft_videos WHERE member_id=?`, memberID)
 	if err != nil {

@@ -47,17 +47,17 @@ func NewRequestRepository(db *sql.DB) (*RequestRepository, error) {
 	return &RequestRepository{db: db}, nil
 }
 
-const requestColumns = `id,member_id,idea,scenario,voice_over_key,render,status,messages,version,created_at,updated_at`
+const requestColumns = `id,member_id,idea,scenario,voice_over_key,render,status,messages,publication_id,state,version,created_at,updated_at`
 
 // Create stores the request at version 1.
 func (r *RequestRepository) Create(ctx context.Context, request videostudioDomain.VideoRequest) error {
-	scenario, render, messages, err := encodeRequest(request)
+	scenario, render, messages, state, err := encodeRequest(request)
 	if err != nil {
 		return err
 	}
 	now := formatTime(time.Now())
-	_, err = r.db.ExecContext(ctx, `INSERT INTO bloomary_video_requests(id,member_id,idea,scenario,voice_over_key,render,status,messages,chat_id,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`,
-		request.ID, request.MemberID, request.Idea, scenario, request.VoiceOverKey, render, request.Status, messages, request.Messages.ChatID, now, now)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO bloomary_video_requests(id,member_id,idea,scenario,voice_over_key,render,status,messages,chat_id,publication_id,state,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
+		request.ID, request.MemberID, request.Idea, scenario, request.VoiceOverKey, render, request.Status, messages, request.Messages.ChatID, request.PublicationID, state, now, now)
 	if err != nil {
 		return fmt.Errorf("insert video request id=%q: %w", request.ID, err)
 	}
@@ -65,12 +65,12 @@ func (r *RequestRepository) Create(ctx context.Context, request videostudioDomai
 }
 
 func (r *RequestRepository) Save(ctx context.Context, request videostudioDomain.VideoRequest) error {
-	scenario, render, messages, err := encodeRequest(request)
+	scenario, render, messages, state, err := encodeRequest(request)
 	if err != nil {
 		return err
 	}
-	result, err := r.db.ExecContext(ctx, `UPDATE bloomary_video_requests SET idea=?,scenario=?,voice_over_key=?,render=?,status=?,messages=?,chat_id=?,version=version+1,updated_at=? WHERE id=? AND member_id=? AND version=?`,
-		request.Idea, scenario, request.VoiceOverKey, render, request.Status, messages, request.Messages.ChatID, formatTime(time.Now()), request.ID, request.MemberID, request.Version)
+	result, err := r.db.ExecContext(ctx, `UPDATE bloomary_video_requests SET idea=?,scenario=?,voice_over_key=?,render=?,status=?,messages=?,chat_id=?,publication_id=?,state=?,version=version+1,updated_at=? WHERE id=? AND member_id=? AND version=?`,
+		request.Idea, scenario, request.VoiceOverKey, render, request.Status, messages, request.Messages.ChatID, request.PublicationID, state, formatTime(time.Now()), request.ID, request.MemberID, request.Version)
 	if err != nil {
 		return fmt.Errorf("update video request id=%q: %w", request.ID, err)
 	}
@@ -95,6 +95,49 @@ WHERE chat_id=? AND EXISTS (SELECT 1 FROM json_tree(messages) WHERE type='intege
 ORDER BY created_at DESC LIMIT 1`, chatID, messageID))
 }
 
+// ByStatus lists every request in the status, oldest first.
+func (r *RequestRepository) ByStatus(ctx context.Context, status videostudioDomain.RequestStatus) ([]videostudioDomain.VideoRequest, error) {
+	return r.list(ctx, `SELECT `+requestColumns+` FROM bloomary_video_requests WHERE status=? ORDER BY created_at,id`, status)
+}
+
+// FinishedBefore lists final requests last changed before cutoff that still hold producer uploads or a voice-over.
+func (r *RequestRepository) FinishedBefore(ctx context.Context, cutoff time.Time) ([]videostudioDomain.VideoRequest, error) {
+	return r.list(ctx, `SELECT `+requestColumns+` FROM bloomary_video_requests
+WHERE status IN ('approved','discarded','cancelled','failed') AND updated_at<? AND (voice_over_key<>'' OR render<>'{}')
+ORDER BY created_at,id`, formatTime(cutoff))
+}
+
+// DeleteCreatedBefore deletes requests created before cutoff and their producer jobs (foreign keys may be off).
+func (r *RequestRepository) DeleteCreatedBefore(ctx context.Context, cutoff time.Time) (int, error) {
+	at := formatTime(cutoff)
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM bloomary_producer_jobs WHERE request_id IN (SELECT id FROM bloomary_video_requests WHERE created_at<?)`, at); err != nil {
+		return 0, fmt.Errorf("delete old producer jobs: %w", err)
+	}
+	result, err := r.db.ExecContext(ctx, `DELETE FROM bloomary_video_requests WHERE created_at<?`, at)
+	if err != nil {
+		return 0, fmt.Errorf("delete old video requests: %w", err)
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
+}
+
+func (r *RequestRepository) list(ctx context.Context, query string, args ...any) ([]videostudioDomain.VideoRequest, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list video requests: %w", err)
+	}
+	defer rows.Close()
+	var out []videostudioDomain.VideoRequest
+	for rows.Next() {
+		request, err := scanRequest(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, request)
+	}
+	return out, rows.Err()
+}
+
 func (r *RequestRepository) DeleteByMemberID(ctx context.Context, memberID string) error {
 	if _, err := r.db.ExecContext(ctx, `DELETE FROM bloomary_video_requests WHERE member_id=?`, memberID); err != nil {
 		return fmt.Errorf("delete video requests member_id=%q: %w", memberID, err)
@@ -102,30 +145,36 @@ func (r *RequestRepository) DeleteByMemberID(ctx context.Context, memberID strin
 	return nil
 }
 
-func encodeRequest(request videostudioDomain.VideoRequest) (scenario, render, messages string, err error) {
-	parts := make([]string, 3)
-	for i, value := range []any{request.Scenario, request.Render, request.Messages} {
+func encodeRequest(request videostudioDomain.VideoRequest) (scenario, render, messages, state string, err error) {
+	parts := make([]string, 4)
+	for i, value := range []any{request.Scenario, request.Render, request.Messages, request.State} {
 		encoded, err := json.Marshal(value)
 		if err != nil {
-			return "", "", "", fmt.Errorf("encode video request id=%q: %w", request.ID, err)
+			return "", "", "", "", fmt.Errorf("encode video request id=%q: %w", request.ID, err)
 		}
 		parts[i] = string(encoded)
 	}
-	return parts[0], parts[1], parts[2], nil
+	// An empty render is stored as {} so FinishedBefore can tell a request without uploads.
+	if request.Render == (videostudioDomain.Render{}) {
+		parts[1] = "{}"
+	}
+	return parts[0], parts[1], parts[2], parts[3], nil
 }
 
 type scanner interface{ Scan(...any) error }
 
 func scanRequest(row scanner) (videostudioDomain.VideoRequest, error) {
 	var request videostudioDomain.VideoRequest
-	var scenario, render, messages string
+	var scenario, render, messages, state string
 	var created, updated sql.NullString
-	err := row.Scan(&request.ID, &request.MemberID, &request.Idea, &scenario, &request.VoiceOverKey, &render, &request.Status, &messages, &request.Version, &created, &updated)
+	err := row.Scan(&request.ID, &request.MemberID, &request.Idea, &scenario, &request.VoiceOverKey, &render, &request.Status, &messages, &request.PublicationID, &state,
+		&request.Version, &created, &updated)
 	if err != nil {
 		return videostudioDomain.VideoRequest{}, notFound(err)
 	}
 	request.CreatedAt, request.UpdatedAt = parseTime(created), parseTime(updated)
-	for raw, target := range map[string]any{scenario: &request.Scenario, render: &request.Render, messages: &request.Messages} {
+	for i, raw := range []string{scenario, render, messages, state} {
+		target := []any{&request.Scenario, &request.Render, &request.Messages, &request.State}[i]
 		if err := json.Unmarshal([]byte(raw), target); err != nil {
 			return videostudioDomain.VideoRequest{}, fmt.Errorf("decode video request id=%q: %w", request.ID, err)
 		}
@@ -167,14 +216,15 @@ func (q *JobQueue) Claim(ctx context.Context, now time.Time, lease time.Duration
 	}
 	job := videostudioDomain.ProducerJob{LeaseToken: token}
 	var until sql.NullString
-	err = q.db.QueryRowContext(ctx, `UPDATE bloomary_producer_jobs SET status='leased',lease_token_sha256=?,lease_until=?,updated_at=?
+	var claimed, created sql.NullString
+	err = q.db.QueryRowContext(ctx, `UPDATE bloomary_producer_jobs SET status='leased',lease_token_sha256=?,lease_until=?,claimed_at=COALESCE(claimed_at,?),updated_at=?
 WHERE id=(SELECT id FROM bloomary_producer_jobs WHERE cancelled=0 AND (status='waiting' OR (status='leased' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1)
-RETURNING id,request_id,member_id,kind,input,lease_until`,
-		hashToken(token), formatTime(now.Add(lease)), at, at).Scan(&job.ID, &job.RequestID, &job.MemberID, &job.Kind, &job.Input, &until)
+RETURNING id,request_id,member_id,kind,input,lease_until,claimed_at,created_at`,
+		hashToken(token), formatTime(now.Add(lease)), at, at, at).Scan(&job.ID, &job.RequestID, &job.MemberID, &job.Kind, &job.Input, &until, &claimed, &created)
 	if err != nil {
 		return videostudioDomain.ProducerJob{}, notFound(err)
 	}
-	job.LeaseUntil = parseTime(until)
+	job.LeaseUntil, job.ClaimedAt, job.CreatedAt = parseTime(until), parseTime(claimed), parseTime(created)
 	return job, nil
 }
 
@@ -224,6 +274,69 @@ func (q *JobQueue) LastSeen(ctx context.Context) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("producer last seen: %w", err)
 	}
 	return parseTime(seen), nil
+}
+
+const jobColumns = `id,request_id,member_id,kind,input,lease_until,claimed_at,created_at,cancelled`
+
+// Leased returns the job (without its lease token) when leaseToken holds its lease.
+func (q *JobQueue) Leased(ctx context.Context, id, leaseToken string) (videostudioDomain.ProducerJob, error) {
+	if err := q.checkLease(ctx, id, leaseToken); err != nil {
+		return videostudioDomain.ProducerJob{}, err
+	}
+	jobs, err := q.list(ctx, `SELECT `+jobColumns+` FROM bloomary_producer_jobs WHERE id=?`, id)
+	if err != nil {
+		return videostudioDomain.ProducerJob{}, err
+	}
+	if len(jobs) == 0 {
+		return videostudioDomain.ProducerJob{}, videostudioDomain.ErrNotFound
+	}
+	return jobs[0], nil
+}
+
+// StartedSince lists the creation times of the member's jobs that start work (not the render after a scenario).
+func (q *JobQueue) StartedSince(ctx context.Context, memberID string, since time.Time) ([]time.Time, error) {
+	rows, err := q.db.QueryContext(ctx, `SELECT created_at FROM bloomary_producer_jobs WHERE member_id=? AND kind<>? AND created_at>=? ORDER BY created_at`,
+		memberID, videostudioDomain.JobRenderVideo, formatTime(since))
+	if err != nil {
+		return nil, fmt.Errorf("producer jobs since: %w", err)
+	}
+	defer rows.Close()
+	var out []time.Time
+	for rows.Next() {
+		var created sql.NullString
+		if err := rows.Scan(&created); err != nil {
+			return nil, err
+		}
+		out = append(out, parseTime(created))
+	}
+	return out, rows.Err()
+}
+
+func (q *JobQueue) OverTime(ctx context.Context, claimedBefore time.Time) ([]videostudioDomain.ProducerJob, error) {
+	return q.list(ctx, `SELECT `+jobColumns+` FROM bloomary_producer_jobs WHERE cancelled=0 AND status IN ('waiting','leased') AND claimed_at<? ORDER BY created_at,id`, formatTime(claimedBefore))
+}
+
+func (q *JobQueue) WaitingSince(ctx context.Context, before time.Time) ([]videostudioDomain.ProducerJob, error) {
+	return q.list(ctx, `SELECT `+jobColumns+` FROM bloomary_producer_jobs WHERE cancelled=0 AND status='waiting' AND claimed_at IS NULL AND created_at<? ORDER BY created_at,id`, formatTime(before))
+}
+
+func (q *JobQueue) list(ctx context.Context, query string, args ...any) ([]videostudioDomain.ProducerJob, error) {
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list producer jobs: %w", err)
+	}
+	defer rows.Close()
+	var out []videostudioDomain.ProducerJob
+	for rows.Next() {
+		var job videostudioDomain.ProducerJob
+		var until, claimed, created sql.NullString
+		if err := rows.Scan(&job.ID, &job.RequestID, &job.MemberID, &job.Kind, &job.Input, &until, &claimed, &created, &job.Cancelled); err != nil {
+			return nil, err
+		}
+		job.LeaseUntil, job.ClaimedAt, job.CreatedAt = parseTime(until), parseTime(claimed), parseTime(created)
+		out = append(out, job)
+	}
+	return out, rows.Err()
 }
 
 func (q *JobQueue) DeleteByMemberID(ctx context.Context, memberID string) error {

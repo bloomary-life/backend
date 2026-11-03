@@ -113,3 +113,57 @@ func TestCancelStopsRunningJob(t *testing.T) {
 	require.ErrorIs(t, queue.Heartbeat(ctx, job.ID, job.LeaseToken, time.Now().Add(time.Hour)), videostudioDomain.ErrJobCancelled)
 	require.NoError(t, queue.DeleteByMemberID(ctx, "member-1"))
 }
+
+func TestStudioQueriesFindVoicingRequestsOverTimeAndWaitingJobsAndPurgeOldRequests(t *testing.T) {
+	// Verifies: BE-092
+	db := newDB(t)
+	ctx := context.Background()
+	requests, err := NewRequestRepository(db)
+	require.NoError(t, err)
+	jobs, err := NewJobQueue(db)
+	require.NoError(t, err)
+	request := videostudioDomain.VideoRequest{ID: "req-1", MemberID: "member-1", Idea: "Idea", Status: videostudioDomain.StatusVoicing, PublicationID: "pub-1",
+		State: videostudioDomain.StudioState{AILabelOff: true, Choices: map[string]string{"del-1": videostudioDomain.ChoiceNow}}}
+	require.NoError(t, requests.Create(ctx, request))
+	voicing, err := requests.ByStatus(ctx, videostudioDomain.StatusVoicing)
+	require.NoError(t, err)
+	require.Len(t, voicing, 1)
+	require.Equal(t, "pub-1", voicing[0].PublicationID)
+	require.Equal(t, request.State, voicing[0].State)
+
+	require.NoError(t, jobs.Enqueue(ctx, videostudioDomain.ProducerJob{ID: "job-1", RequestID: "req-1", MemberID: "member-1", Kind: videostudioDomain.JobWriteScenario}))
+	require.NoError(t, jobs.Enqueue(ctx, videostudioDomain.ProducerJob{ID: "job-2", RequestID: "req-1", MemberID: "member-1", Kind: videostudioDomain.JobRenderVideo}))
+	waiting, err := jobs.WaitingSince(ctx, time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, waiting, 2)
+	started, err := jobs.StartedSince(ctx, "member-1", time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Len(t, started, 1, "the render after a scenario doesn't count as a new job")
+
+	claimed, err := jobs.Claim(ctx, time.Now().Add(-2*time.Hour), 3*time.Hour)
+	require.NoError(t, err)
+	require.Equal(t, "job-1", claimed.ID)
+	leased, err := jobs.Leased(ctx, "job-1", claimed.LeaseToken)
+	require.NoError(t, err)
+	require.Equal(t, "req-1", leased.RequestID)
+	require.WithinDuration(t, time.Now().Add(-2*time.Hour), leased.ClaimedAt, time.Second)
+	over, err := jobs.OverTime(ctx, time.Now().Add(-time.Hour))
+	require.NoError(t, err)
+	require.Len(t, over, 1)
+	require.Equal(t, "job-1", over[0].ID)
+
+	stored, err := requests.ByID(ctx, "member-1", "req-1")
+	require.NoError(t, err)
+	require.NoError(t, stored.MoveTo(videostudioDomain.StatusDiscarded))
+	stored.VoiceOverKey = "voice.wav"
+	require.NoError(t, requests.Save(ctx, stored))
+	finished, err := requests.FinishedBefore(ctx, time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, finished, 1)
+	deleted, err := requests.DeleteCreatedBefore(ctx, time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	require.Equal(t, 1, deleted)
+	left, err := jobs.WaitingSince(ctx, time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	require.Empty(t, left)
+}
